@@ -1,3 +1,4 @@
+
 import { Timestamp } from 'firebase/firestore';
 
 export interface UserProfile {
@@ -15,6 +16,7 @@ export interface Project {
   id: string;
   name: string;
   createdAt: any;
+  archived?: boolean;
 }
 
 export interface AuditStatus {

@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
     signInWithEmailAndPassword, 
@@ -30,13 +31,13 @@ import {
     Filter, Search, ChevronDown, Plus, Save, Edit2, X, Maximize2,
     PieChart as PieIcon, Activity, Scale, Layers, Box, Image as ImageIcon,
     HelpCircle, FileBox, ArrowRight, Link as LinkIcon, ExternalLink, Unlink,
-    History, Calendar, Clock
+    History, Calendar, Clock, Archive, ArchiveRestore
 } from 'lucide-react';
 
 // --- Components ---
 
 const Button = ({ children, onClick, variant = 'primary', className = '', disabled = false, loading = false, title = '', type = 'button' }: any) => {
-    const baseStyle = "h-10 px-4 py-2 rounded-lg font-medium transition-colors duration-200 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed text-sm focus:outline-none focus:ring-2 focus:ring-offset-1 shadow-sm";
+    const baseStyle = "h-10 px-4 py-2 rounded-lg font-medium transition-colors duration-200 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed text-sm focus:outline-none focus:ring-2 focus:ring-offset-1 shadow-sm whitespace-nowrap";
     
     const variants = {
         primary: "bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500 border border-transparent",
@@ -52,7 +53,7 @@ const Button = ({ children, onClick, variant = 'primary', className = '', disabl
             className={`${baseStyle} ${variants[variant as keyof typeof variants]} ${className}`}
             title={title}
         >
-            {loading && <Loader2 className="w-4 h-4 animate-spin" />}
+            {loading && <Loader2 className="w-4 h-4 animate-spin shrink-0" />}
             {children}
         </button>
     );
@@ -97,6 +98,7 @@ export default function App() {
     const [phaseFilter, setPhaseFilter] = useState('');
     const [stateFilter, setStateFilter] = useState('');
     const [stateValueFilter, setStateValueFilter] = useState('all');
+    const [showArchivedInManager, setShowArchivedInManager] = useState(false);
 
     // UI State
     const [modals, setModals] = useState({
@@ -310,7 +312,11 @@ export default function App() {
         const form = e.target as HTMLFormElement;
         const name = (form.elements.namedItem('pname') as HTMLInputElement).value;
         if (name) {
-            await addDoc(collection(db, `artifacts/${appId}/public/data/projects`), { name, createdAt: new Date() });
+            await addDoc(collection(db, `artifacts/${appId}/public/data/projects`), { 
+                name, 
+                createdAt: new Date(),
+                archived: false 
+            });
             form.reset();
         }
     };
@@ -318,7 +324,7 @@ export default function App() {
     const handleDeleteProject = (pid: string) => {
         setConfirmAction({
             title: "Eliminar Proyecto",
-            msg: "¿Estás seguro? Se perderán todos los datos asociados.",
+            msg: "¿Estás seguro? Se perderán todos los datos asociados. Esta acción no se puede deshacer.",
             action: async () => {
                 await deleteDoc(doc(db, `artifacts/${appId}/public/data/projects`, pid));
                 if(activeProjectId === pid) setActiveProjectId(null);
@@ -326,6 +332,20 @@ export default function App() {
             }
         });
         setModals(m => ({ ...m, confirm: true }));
+    };
+
+    const toggleArchiveProject = async (pid: string, currentStatus: boolean) => {
+        if (!canManageProjects) return;
+        try {
+            await updateDoc(doc(db, `artifacts/${appId}/public/data/projects`, pid), {
+                archived: !currentStatus
+            });
+            if (!currentStatus && activeProjectId === pid) {
+                setActiveProjectId(null);
+            }
+        } catch (err: any) {
+            alert("Error al archivar proyecto: " + err.message);
+        }
     };
 
     const handleExcelUpload = async (e: React.FormEvent) => {
@@ -512,6 +532,9 @@ export default function App() {
     };
 
     // --- Derived Data ---
+
+    const activeProjects = useMemo(() => projects.filter(p => !p.archived), [projects]);
+    const archivedProjects = useMemo(() => projects.filter(p => p.archived), [projects]);
 
     const activePieces = useMemo(() => pieces.filter(p => !p.eliminada), [pieces]);
     
@@ -745,7 +768,7 @@ export default function App() {
                                 onChange={(e) => setActiveProjectId(e.target.value || null)}
                             >
                                 <option value="">-- Seleccionar Obra --</option>
-                                {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                                {activeProjects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                             </select>
                             <ChevronDown className="w-4 h-4 text-slate-400 absolute right-3 top-3 pointer-events-none"/>
                         </div>
@@ -833,13 +856,13 @@ export default function App() {
                                                 onClick={() => setVisualMode('2d')} 
                                                 className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-bold transition-all ${visualMode === '2d' ? 'bg-white text-blue-600 shadow-sm ring-1 ring-black/5' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'}`}
                                             >
-                                                <ImageIcon className="w-3.5 h-3.5" /> Imagen 2D
+                                                <ImageIcon className="w-3.5 h-3.5 shrink-0" /> Imagen 2D
                                             </button>
                                             <button 
                                                 onClick={() => setVisualMode('3d')} 
                                                 className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-bold transition-all ${visualMode === '3d' ? 'bg-white text-blue-600 shadow-sm ring-1 ring-black/5' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'}`}
                                             >
-                                                <LinkIcon className="w-3.5 h-3.5" /> Visualizador Web
+                                                <LinkIcon className="w-3.5 h-3.5 shrink-0" /> Visualizador Web
                                             </button>
                                         </div>
                                         
@@ -912,7 +935,7 @@ export default function App() {
                                             {canUpload && !projectLink && visualMode === '3d' && (
                                                  <div className="absolute bottom-4 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-all duration-300 z-20 translate-y-2 group-hover:translate-y-0 flex flex-col items-center gap-2 w-full px-4">
                                                      <Button variant="secondary" onClick={() => setModals(m => ({...m, linkModel: true}))} className="shadow-lg border-white/20 text-slate-800 h-8 text-xs px-3 backdrop-blur-sm bg-white/90">
-                                                        <LinkIcon className="w-3.5 h-3.5"/> Vincular Link
+                                                        <LinkIcon className="w-3.5 h-3.5 shrink-0"/> Vincular Link
                                                      </Button>
                                                  </div>
                                             )}
@@ -920,7 +943,7 @@ export default function App() {
                                                 <div className="absolute bottom-4 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-all duration-300 z-20 translate-y-2 group-hover:translate-y-0 flex flex-col items-center gap-2 w-full px-4">
                                                     <input type="file" ref={imageInputRef} accept="image/*" className="hidden" onChange={handleImageUpload} />
                                                     <Button variant="secondary" onClick={() => imageInputRef.current?.click()} className="shadow-lg border-white/20 text-slate-800 h-8 text-xs px-3 backdrop-blur-sm bg-white/90">
-                                                        <Upload className="w-3.5 h-3.5"/> Cargar Imagen
+                                                        <Upload className="w-3.5 h-3.5 shrink-0"/> Cargar Imagen
                                                     </Button>
                                                 </div>
                                             )}
@@ -975,16 +998,16 @@ export default function App() {
                                                 <>
                                                     <input type="file" ref={fileInputRef} accept=".xlsx" className="hidden" onChange={handleExcelUpload} />
                                                     <Button variant="primary" onClick={() => fileInputRef.current?.click()} loading={processing} className="w-full sm:w-auto">
-                                                        <FileSpreadsheet className="w-4 h-4"/> <span className="hidden sm:inline">Importar Excel</span>
+                                                        <FileSpreadsheet className="w-4 h-4 shrink-0"/> <span className="hidden sm:inline">Importar Excel</span>
                                                     </Button>
                                                 </>
                                             )}
                                             <div className="flex gap-2 w-full sm:w-auto">
                                                 <Button variant="secondary" onClick={exportPDF} title="Exportar PDF" className="flex-1 sm:flex-none">
-                                                    <Download className="w-4 h-4"/> PDF
+                                                    <Download className="w-4 h-4 shrink-0"/> PDF
                                                 </Button>
                                                 <Button variant="secondary" onClick={exportExcel} title="Exportar Excel" className="flex-1 sm:flex-none">
-                                                    <Download className="w-4 h-4"/> XLS
+                                                    <Download className="w-4 h-4 shrink-0"/> XLS
                                                 </Button>
                                             </div>
                                         </div>
@@ -1058,7 +1081,7 @@ export default function App() {
                                                                     className={`transition-all p-1.5 rounded-lg hover:bg-blue-50 ${p.comentario ? 'text-blue-600 bg-blue-50/50' : 'text-slate-300 hover:text-blue-500'}`}
                                                                     title={p.comentario || "Agregar comentario"}
                                                                 >
-                                                                    <MessageSquare className="w-4 h-4 fill-current" />
+                                                                    <MessageSquare className="w-4 h-4 fill-current shrink-0" />
                                                                 </button>
                                                             </td>
                                                             <td className="p-3 text-center">
@@ -1067,7 +1090,7 @@ export default function App() {
                                                                     className="transition-all p-1.5 rounded-lg text-slate-300 hover:text-blue-500 hover:bg-blue-50"
                                                                     title="Ver historial de estados"
                                                                 >
-                                                                    <History className="w-4 h-4" />
+                                                                    <History className="w-4 h-4 shrink-0" />
                                                                 </button>
                                                             </td>
                                                         </tr>
@@ -1087,7 +1110,7 @@ export default function App() {
                                 <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
                                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
                                         <h3 className="font-bold text-slate-700 flex items-center gap-2 text-lg">
-                                            <Filter className="w-5 h-5 text-slate-400"/> Filtro de Fases
+                                            <Filter className="w-5 h-5 text-slate-400 shrink-0"/> Filtro de Fases
                                         </h3>
                                         <button 
                                             onClick={() => setSelectedPhases(selectedPhases.length === uniquePhases.length ? [] : uniquePhases)}
@@ -1110,7 +1133,7 @@ export default function App() {
                                                     className="hidden"
                                                 />
                                                 <span className="font-medium">Fase {ph}</span>
-                                                {selectedPhases.includes(ph) && <CheckCircle2 className="w-3.5 h-3.5 text-blue-300" />}
+                                                {selectedPhases.includes(ph) && <CheckCircle2 className="w-3.5 h-3.5 text-blue-300 shrink-0" />}
                                             </label>
                                         ))}
                                     </div>
@@ -1120,7 +1143,7 @@ export default function App() {
                                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                                     <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex items-center gap-4">
                                         <div className="w-12 h-12 rounded-full bg-blue-50 flex items-center justify-center text-blue-600">
-                                            <Scale className="w-6 h-6"/>
+                                            <Scale className="w-6 h-6 shrink-0"/>
                                         </div>
                                         <div>
                                             <p className="text-sm text-slate-500 font-medium">Peso Total (Selección)</p>
@@ -1129,7 +1152,7 @@ export default function App() {
                                     </div>
                                     <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex items-center gap-4">
                                         <div className="w-12 h-12 rounded-full bg-green-50 flex items-center justify-center text-green-600">
-                                            <CheckCircle2 className="w-6 h-6"/>
+                                            <CheckCircle2 className="w-6 h-6 shrink-0"/>
                                         </div>
                                         <div>
                                             <p className="text-sm text-slate-500 font-medium">Terminado (Montado)</p>
@@ -1138,7 +1161,7 @@ export default function App() {
                                     </div>
                                     <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex items-center gap-4">
                                         <div className="w-12 h-12 rounded-full bg-purple-50 flex items-center justify-center text-purple-600">
-                                            <Activity className="w-6 h-6"/>
+                                            <Activity className="w-6 h-6 shrink-0"/>
                                         </div>
                                         <div>
                                             <p className="text-sm text-slate-500 font-medium">Progreso Global</p>
@@ -1151,7 +1174,7 @@ export default function App() {
                                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                                     {/* Bar Chart (Cumulative) */}
                                     <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 h-[450px] flex flex-col">
-                                        <h3 className="font-bold text-slate-700 mb-6 flex items-center gap-2"><BarChart3 className="w-5 h-5 text-slate-400"/> Avance Acumulado por Etapa</h3>
+                                        <h3 className="font-bold text-slate-700 mb-6 flex items-center gap-2"><BarChart3 className="w-5 h-5 text-slate-400 shrink-0"/> Avance Acumulado por Etapa</h3>
                                         <div className="flex-1 min-h-0">
                                             <ResponsiveContainer width="100%" height="100%">
                                                 <BarChart data={dashboardData.bars} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
@@ -1175,12 +1198,12 @@ export default function App() {
 
                                     {/* Horizontal Bar Chart (Current Inventory) - REPLACED PIE CHART */}
                                     <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 h-[450px] flex flex-col">
-                                        <h3 className="font-bold text-slate-700 mb-2 flex items-center gap-2"><Layers className="w-5 h-5 text-slate-400"/> Inventario en Proceso (Estado Actual)</h3>
+                                        <h3 className="font-bold text-slate-700 mb-2 flex items-center gap-2"><Layers className="w-5 h-5 text-slate-400 shrink-0"/> Inventario en Proceso (Estado Actual)</h3>
                                         <p className="text-xs text-slate-400 mb-4">Cantidad de kg acumulados en cada estación (Cuellos de botella)</p>
                                         <div className="flex-1 min-h-0">
                                             {dashboardData.currentStatusData.length === 0 ? (
                                                 <div className="h-full w-full flex flex-col items-center justify-center text-slate-300">
-                                                    <List className="w-12 h-12 mb-2 opacity-20"/>
+                                                    <List className="w-12 h-12 mb-2 opacity-20 shrink-0"/>
                                                     <p className="text-sm">Sin datos para mostrar</p>
                                                 </div>
                                             ) : (
@@ -1225,28 +1248,67 @@ export default function App() {
             {/* Modals */}
             
             <Modal isOpen={modals.manageProjects} onClose={() => setModals(m => ({...m, manageProjects: false}))} title="Gestión de Obras">
-                {canManageProjects && (
-                    <form onSubmit={handleCreateProject} className="flex gap-3 mb-6">
-                        <input name="pname" placeholder="Nombre de nueva obra" className="input-field flex-1" />
-                        <Button variant="primary"><Plus className="w-4 h-4"/> Crear</Button>
-                    </form>
-                )}
-                <ul className="space-y-2 max-h-60 overflow-y-auto pr-1">
-                    {projects.length === 0 ? <p className="text-center text-slate-400 italic py-4">No hay obras registradas.</p> :
-                    projects.map(p => (
-                        <li key={p.id} className="flex justify-between items-center p-3.5 bg-slate-50 rounded-lg border border-slate-100 hover:border-blue-100 hover:bg-blue-50/30 transition-colors group">
-                            <div className="flex items-center gap-3">
-                                <Building className="w-5 h-5 text-slate-400 group-hover:text-blue-500 transition-colors"/>
-                                <span className="font-medium text-slate-700">{p.name}</span>
-                            </div>
-                            {canManageProjects && (
-                                <button onClick={() => handleDeleteProject(p.id)} className="text-slate-400 hover:text-red-500 hover:bg-red-50 p-2 rounded-lg transition-all" title="Eliminar obra">
-                                    <Trash2 className="w-4 h-4" />
-                                </button>
+                <div className="space-y-6">
+                    {canManageProjects && (
+                        <form onSubmit={handleCreateProject} className="flex gap-3">
+                            <input name="pname" placeholder="Nombre de nueva obra" className="input-field flex-1" />
+                            <Button variant="primary"><Plus className="w-4 h-4 shrink-0"/> Crear</Button>
+                        </form>
+                    )}
+
+                    <div>
+                        <div className="flex items-center justify-between mb-3">
+                            <h4 className="text-sm font-bold text-slate-500 uppercase tracking-wider">
+                                {showArchivedInManager ? 'Obras Archivadas' : 'Obras Activas'}
+                            </h4>
+                            <button 
+                                onClick={() => setShowArchivedInManager(!showArchivedInManager)}
+                                className="text-xs text-blue-600 font-semibold hover:underline flex items-center gap-1.5"
+                            >
+                                {showArchivedInManager ? (
+                                    <><List className="w-3 h-3 shrink-0"/> Ver Activas</>
+                                ) : (
+                                    <><Archive className="w-3 h-3 shrink-0"/> Ver Archivadas</>
+                                )}
+                            </button>
+                        </div>
+                        
+                        <ul className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                            {(showArchivedInManager ? archivedProjects : activeProjects).length === 0 ? (
+                                <p className="text-center text-slate-400 italic py-8 text-sm">
+                                    No hay obras {showArchivedInManager ? 'archivadas' : 'activas'}.
+                                </p>
+                            ) : (
+                                (showArchivedInManager ? archivedProjects : activeProjects).map(p => (
+                                    <li key={p.id} className={`flex justify-between items-center p-3 bg-white rounded-lg border border-slate-200 hover:border-blue-100 hover:bg-blue-50/20 transition-all group ${p.archived ? 'opacity-70 grayscale-[0.5]' : ''}`}>
+                                        <div className="flex items-center gap-3">
+                                            <Building className={`w-5 h-5 ${p.archived ? 'text-slate-300' : 'text-slate-400 group-hover:text-blue-500'} transition-colors shrink-0`}/>
+                                            <span className={`font-medium text-sm ${p.archived ? 'text-slate-500 italic' : 'text-slate-700'}`}>{p.name}</span>
+                                        </div>
+                                        {canManageProjects && (
+                                            <div className="flex items-center gap-1">
+                                                <button 
+                                                    onClick={() => toggleArchiveProject(p.id, p.archived || false)} 
+                                                    className="text-slate-400 hover:text-blue-600 hover:bg-blue-50 p-2 rounded-lg transition-all" 
+                                                    title={p.archived ? "Desarchivar obra" : "Archivar obra"}
+                                                >
+                                                    {p.archived ? <ArchiveRestore className="w-4 h-4 shrink-0" /> : <Archive className="w-4 h-4 shrink-0" />}
+                                                </button>
+                                                <button 
+                                                    onClick={() => handleDeleteProject(p.id)} 
+                                                    className="text-slate-400 hover:text-red-500 hover:bg-red-50 p-2 rounded-lg transition-all" 
+                                                    title="Eliminar permanentemente"
+                                                >
+                                                    <Trash2 className="w-4 h-4 shrink-0" />
+                                                </button>
+                                            </div>
+                                        )}
+                                    </li>
+                                ))
                             )}
-                        </li>
-                    ))}
-                </ul>
+                        </ul>
+                    </div>
+                </div>
             </Modal>
 
             <Modal isOpen={modals.comment} onClose={() => setModals(m => ({...m, comment: false}))} title="Comentario de la Pieza">
@@ -1266,7 +1328,7 @@ export default function App() {
             <Modal isOpen={modals.profile} onClose={() => setModals(m => ({...m, profile: false}))} title="Mi Perfil">
                 <form onSubmit={handleUpdateProfile} className="space-y-5">
                     <div className="flex items-center gap-4 p-4 bg-blue-50/50 rounded-xl border border-blue-100">
-                        <div className="w-16 h-16 bg-blue-200 text-blue-700 rounded-full flex items-center justify-center text-2xl font-bold shadow-inner">
+                        <div className="w-16 h-16 bg-blue-200 text-blue-700 rounded-full flex items-center justify-center text-2xl font-bold shadow-inner shrink-0">
                             {userProfile?.nombre?.charAt(0) || user?.email?.charAt(0)}
                         </div>
                         <div className="flex-1">
@@ -1324,7 +1386,7 @@ export default function App() {
                     <div className="pt-2 flex justify-end gap-3">
                         <Button variant="secondary" onClick={() => setModals(m => ({...m, profile: false}))}>Cancelar</Button>
                         <Button type="submit" loading={processing}>
-                            <Save className="w-4 h-4" /> Guardar Cambios
+                            <Save className="w-4 h-4 shrink-0" /> Guardar Cambios
                         </Button>
                     </div>
                 </form>
@@ -1333,7 +1395,7 @@ export default function App() {
             <Modal isOpen={modals.confirm} onClose={() => setModals(m => ({...m, confirm: false}))} title={confirmAction?.title}>
                 <div className="flex flex-col items-center text-center p-2">
                     <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mb-4">
-                        <AlertTriangle className="w-8 h-8 text-red-500" />
+                        <AlertTriangle className="w-8 h-8 text-red-500 shrink-0" />
                     </div>
                     <h4 className="text-lg font-bold text-slate-800 mb-2">{confirmAction?.title}</h4>
                     <p className="text-slate-500 mb-8 leading-relaxed">{confirmAction?.msg}</p>
@@ -1353,7 +1415,7 @@ export default function App() {
                              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Creación</span>
                              <p className="text-slate-800 font-medium">Cargado al sistema</p>
                              <div className="flex items-center gap-2 text-xs text-slate-500 mt-1">
-                                <Calendar className="w-3 h-3"/> {historyTarget ? formatTime(historyTarget.loadedAt) : '-'}
+                                <Calendar className="w-3 h-3 shrink-0"/> {historyTarget ? formatTime(historyTarget.loadedAt) : '-'}
                              </div>
                          </div>
                     </div>
@@ -1378,10 +1440,10 @@ export default function App() {
                                         {isDone && auditData && (
                                             <div className="text-right">
                                                 <div className="flex items-center justify-end gap-1.5 text-xs font-medium text-slate-700 mb-0.5">
-                                                    <UserIcon className="w-3 h-3 text-slate-400"/> {auditData.usuarioNombre || 'Desconocido'}
+                                                    <UserIcon className="w-3 h-3 text-slate-400 shrink-0"/> {auditData.usuarioNombre || 'Desconocido'}
                                                 </div>
                                                 <div className="flex items-center justify-end gap-1.5 text-xs text-slate-500">
-                                                    <Clock className="w-3 h-3 text-slate-400"/> {formatTime(auditData.fecha)}
+                                                    <Clock className="w-3 h-3 text-slate-400 shrink-0"/> {formatTime(auditData.fecha)}
                                                 </div>
                                             </div>
                                         )}
@@ -1432,7 +1494,7 @@ export default function App() {
                         onClick={() => setIsImageExpanded(false)}
                         className="absolute top-4 right-4 p-2 bg-white/10 hover:bg-white/20 text-white rounded-full transition-colors z-10"
                     >
-                        <X className="w-6 h-6" />
+                        <X className="w-6 h-6 shrink-0" />
                     </button>
                     
                     {/* Image */}
@@ -1453,7 +1515,7 @@ export default function App() {
                 }
                 .nav-btn { 
                     @apply w-full flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-medium text-slate-500 
-                    transition-all duration-200 border border-transparent whitespace-nowrap; 
+                    transition-all duration-200 border border-transparent whitespace-nowrap overflow-hidden; 
                 }
                 .nav-btn:hover { 
                     @apply bg-slate-100 text-slate-900; 
