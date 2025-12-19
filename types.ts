@@ -9,6 +9,7 @@ export interface UserProfile {
   apellido: string;
   puesto: string;
   area: string;
+  avatarUrl?: string;
   createdAt: any;
 }
 
@@ -17,6 +18,8 @@ export interface Project {
   name: string;
   createdAt: any;
   archived?: boolean;
+  imageUrl?: string;
+  externalLink?: string;
 }
 
 export interface AuditStatus {

@@ -1,97 +1,106 @@
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
     signInWithEmailAndPassword, 
-    createUserWithEmailAndPassword, 
-    signOut, 
     onAuthStateChanged, 
+    signOut,
     User 
 } from 'firebase/auth';
 import { 
     collection, query, where, getDocs, addDoc, updateDoc, 
-    doc, onSnapshot, deleteDoc, orderBy, limit, setDoc, writeBatch
+    doc, onSnapshot, orderBy, limit, writeBatch, serverTimestamp,
+    deleteDoc
 } from 'firebase/firestore';
 import { auth, db, appId } from './firebase';
 import { 
-    UserProfile, Project, Piece, 
+    UserProfile, Project, Piece, SyncLog,
     AREAS, STATES, AREA_PERMISSIONS, AuditStatus 
 } from './types';
 import { formatTime, readExcel, isStateComplete } from './utils';
 import { 
-    BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-    Cell, Legend, LabelList
+    AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+    BarChart, Bar, Cell, Legend, ComposedChart, Line, LabelList
 } from 'recharts';
-import { jsPDF } from "jspdf";
-import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import html2canvas from 'html2canvas';
 import { 
-    Loader2, LogOut, User as UserIcon, Building, FileSpreadsheet, 
-    BarChart3, List, CheckCircle2, MessageSquare, 
-    AlertTriangle, Trash2, Eye, Upload, Download,
-    Filter, Search, ChevronDown, Plus, Save, Edit2, X, Maximize2,
-    PieChart as PieIcon, Activity, Scale, Layers, Box, Image as ImageIcon,
-    HelpCircle, FileBox, ArrowRight, Link as LinkIcon, ExternalLink, Unlink,
-    History, Calendar, Clock, Archive, ArchiveRestore, Settings, Monitor,
-    TrendingUp, Timer, Target, Zap, FileText
+    Loader2, LogOut, Building, FileSpreadsheet, 
+    Database, LayoutDashboard, CheckCircle2, MessageSquare, 
+    Trash2, Upload, Download, Search, ChevronDown, Plus, X, 
+    Layers, History, Clock, Archive, ClipboardList,
+    TrendingUp, Weight, Zap, Cpu, MoreHorizontal, CheckSquare, Square,
+    Monitor, Settings, Info, Calendar, User as UserIcon, ArrowRight,
+    Truck, Activity, AlertCircle, Gauge, Boxes, ArrowUpRight, Ship, Warehouse,
+    Maximize2, ExternalLink, Image as ImageIcon, Box, Edit3, Camera, Save,
+    Filter, UserCircle, Briefcase, FileText, Menu
 } from 'lucide-react';
-
-// --- Brand Components ---
-
-const SolanaSymbol = ({ className = "w-10 h-10" }: { className?: string }) => (
-    <div className={`${className} rounded-xl overflow-hidden shrink-0 shadow-md border border-slate-100 bg-white`}>
-        <img 
-            src="https://media.licdn.com/dms/image/v2/C4E0BAQENkX0orEV8KQ/company-logo_200_200/company-logo_200_200/0/1630620084700?e=2147483647&v=beta&t=8OGYSccaJ78FnSmrdWKlTs0G_EYREXv8gvSJoIaL-DQ" 
-            alt="Solana Isotype" 
-            className="w-full h-full object-cover"
-        />
-    </div>
-);
-
-const SolanaLogoFull = ({ className = "w-full max-w-[280px]" }: { className?: string }) => (
-    <div className={`flex flex-col items-center gap-2 ${className}`}>
-        <img 
-            src="https://www.solanasrl.com.ar/wp-content/uploads/cropped-sticky-2.png" 
-            alt="Solana SRL Logo" 
-            className="w-full h-auto drop-shadow-sm"
-        />
-    </div>
-);
 
 // --- UI Components ---
 
-const Button = ({ children, onClick, variant = 'primary', className = '', disabled = false, loading = false, title = '', type = 'button' }: any) => {
-    const baseStyle = "h-11 px-5 py-2 rounded-xl font-semibold transition-all duration-300 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed text-sm shadow-sm active:scale-95";
-    
+const SolanaSymbol = ({ className = "w-10 h-10" }: { className?: string }) => (
+    <div className={`${className} rounded-xl overflow-hidden shrink-0 shadow-sm bg-white p-1 ring-1 ring-slate-200`}>
+        <img 
+            src="https://media.licdn.com/dms/image/v2/C4E0BAQENkX0orEV8KQ/company-logo_200_200/company-logo_200_200/0/1630620084700?e=2147483647&v=beta&t=8OGYSccaJ78FnSmrdWKlTs0G_EYREXv8gvSJoIaL-DQ" 
+            alt="Solana" 
+            className="w-full h-full object-cover rounded-lg"
+        />
+    </div>
+);
+
+const Button = ({ children, onClick, variant = 'primary', className = '', loading = false, disabled = false, type = 'button' }: any) => {
+    const base = "h-11 px-4 md:px-6 rounded-xl font-bold transition-all duration-200 flex items-center justify-center gap-2 text-[10px] md:text-xs uppercase tracking-widest active:scale-95 disabled:opacity-50";
     const variants = {
-        primary: "bg-[#0E3B43] text-white hover:bg-[#15535e] hover:shadow-lg hover:shadow-[#0e3b43]/20 border border-transparent",
-        secondary: "bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 hover:border-slate-300 hover:shadow-md",
-        danger: "bg-red-50 text-red-600 border border-red-100 hover:bg-red-600 hover:text-white hover:shadow-lg hover:shadow-red-200",
-        ghost: "text-slate-500 hover:bg-slate-100 hover:text-slate-900 shadow-none"
+        primary: "bg-slate-600 text-white shadow-md hover:bg-slate-700",
+        secondary: "bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 shadow-sm",
+        danger: "bg-red-50 text-red-600 border border-red-100 hover:bg-red-600 hover:text-white shadow-sm",
+        ghost: "text-slate-500 hover:text-slate-800 hover:bg-slate-100"
     };
     return (
-        <button 
-            type={type}
-            onClick={onClick} 
-            disabled={disabled || loading} 
-            className={`${baseStyle} ${variants[variant as keyof typeof variants]} ${className}`}
-            title={title}
-        >
-            {loading ? <Loader2 className="w-4 h-4 animate-spin shrink-0" /> : children}
+        <button type={type} onClick={onClick} disabled={disabled || loading} className={`${base} ${variants[variant as keyof typeof variants]} ${className}`}>
+            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : children}
         </button>
     );
 };
 
-const Modal = ({ isOpen, onClose, title, children }: any) => {
-    if (!isOpen) return null;
+const StatusBadge = ({ state, p, onToggle, allowed }: any) => {
+    const status = p[state.key];
+    const isDone = isStateComplete(status);
     return (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/40 backdrop-blur-md animate-in fade-in duration-300">
-            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-300 border border-white/20">
-                <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-white/80 backdrop-blur sticky top-0 z-10">
-                    <h3 className="text-xl font-bold text-slate-800 tracking-tight">{title}</h3>
-                    <button onClick={onClose} className="p-2 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-all">
-                        <X className="w-5 h-5" />
-                    </button>
+        <button 
+            disabled={!allowed}
+            onClick={() => onToggle(p.id, state.key, status)}
+            className={`relative w-9 h-9 md:w-10 md:h-10 rounded-xl flex items-center justify-center transition-all duration-300 group/status ${!allowed ? 'opacity-20 cursor-not-allowed' : 'hover:scale-110 active:scale-90'}`}
+            title={state.label}
+        >
+            <div 
+                className={`w-full h-full rounded-xl border-2 flex items-center justify-center transition-all duration-300 ${isDone ? 'border-transparent' : 'border-slate-200 bg-white'}`}
+                style={isDone ? { backgroundColor: state.color, boxShadow: `0 4px 10px ${state.color}40` } : {}}
+            >
+                {isDone ? (
+                    <CheckCircle2 className="w-5 h-5 md:w-6 md:h-6 text-white stroke-[3] pulse-led" />
+                ) : (
+                    <div className="w-1.5 h-1.5 rounded-full bg-slate-300 group-hover/status:bg-slate-400" />
+                )}
+            </div>
+            {/* Etiqueta móvil */}
+            <span className="absolute -bottom-4 text-[7px] font-bold text-slate-400 uppercase md:hidden">{state.short}</span>
+        </button>
+    );
+};
+
+const Modal = ({ isOpen, onClose, title, children, size = 'md' }: any) => {
+    if (!isOpen) return null;
+    const sizes = { md: 'max-w-lg', lg: 'max-w-3xl', xl: 'max-w-7xl' };
+    return (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 md:p-6 bg-slate-800/40 backdrop-blur-sm animate-in fade-in duration-300">
+            <div className={`bg-white rounded-[1.5rem] md:rounded-[2rem] shadow-2xl w-full ${sizes[size as keyof typeof sizes]} max-h-[90vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200 border border-slate-200`}>
+                <div className="p-4 md:p-6 border-b border-slate-100 flex justify-between items-center bg-white sticky top-0 z-10">
+                    <h3 className="text-sm md:text-xl font-black text-slate-800 tracking-tight uppercase tracking-wider truncate">{title}</h3>
+                    <button onClick={onClose} className="p-2 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-all active:scale-90"><X className="w-5 h-5" /></button>
                 </div>
-                <div className="p-6 overflow-y-auto custom-scroll">
+                <div className="p-5 md:p-8 overflow-y-auto custom-scroll">
                     {children}
                 </div>
             </div>
@@ -99,1010 +108,1063 @@ const Modal = ({ isOpen, onClose, title, children }: any) => {
     );
 };
 
-const Card = ({ children, className = "", title = "", icon: Icon, subtitle = "" }: any) => (
-    <div className={`bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden flex flex-col ${className}`}>
-        {(title || Icon) && (
-            <div className="px-8 py-6 border-b border-slate-50 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                    {Icon && <div className="p-2.5 bg-slate-50 rounded-xl text-slate-400"><Icon className="w-5 h-5" /></div>}
-                    <div>
-                        <h3 className="font-bold text-slate-700 leading-tight">{title}</h3>
-                        {subtitle && <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">{subtitle}</p>}
-                    </div>
-                </div>
-            </div>
-        )}
-        <div className="p-8 flex-1">
-            {children}
-        </div>
-    </div>
-);
-
-// --- Custom Tooltip for Chart ---
-const CustomTooltip = ({ active, payload, label }: any) => {
-    if (active && payload && payload.length) {
-        const data = payload[0].payload;
-        return (
-            <div className="bg-white/95 backdrop-blur-md p-4 rounded-2xl shadow-2xl border border-slate-100">
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">{data.name}</p>
-                <div className="flex flex-col gap-1">
-                    <p className="text-sm font-bold text-slate-700">Completado: <span className="text-[#0E3B43]">{data.kg.toLocaleString()} kg</span></p>
-                    <p className="text-xs font-semibold text-slate-400">Porcentaje: <span className="text-slate-600">{data.percentage.toFixed(1)}%</span></p>
-                </div>
-            </div>
-        );
-    }
-    return null;
-};
-
 // --- Main App ---
 
 export default function App() {
-    // Auth & User State
     const [user, setUser] = useState<User | null>(null);
     const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
     const [authLoading, setAuthLoading] = useState(true);
     const [activeView, setActiveView] = useState<'pieces' | 'charts'>('pieces');
-
-    // Data State
     const [projects, setProjects] = useState<Project[]>([]);
     const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
     const [pieces, setPieces] = useState<Piece[]>([]);
-    const [projectImage, setProjectImage] = useState<string | null>(null);
-    const [projectLink, setProjectLink] = useState<string | null>(null);
+    const [syncLogs, setSyncLogs] = useState<SyncLog[]>([]);
     const [loadingData, setLoadingData] = useState(false);
-
-    // Filters
     const [searchTerm, setSearchTerm] = useState('');
     const [phaseFilter, setPhaseFilter] = useState('');
     const [stateFilter, setStateFilter] = useState('');
     const [stateValueFilter, setStateValueFilter] = useState('all');
+    const [selectedPieces, setSelectedPieces] = useState<Set<string>>(new Set());
+    const [processing, setProcessing] = useState(false);
+    const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-    // UI State
     const [modals, setModals] = useState({
         login: true,
-        profile: false,
-        manageProjects: false,
+        projects: false,
+        logs: false,
+        massPhase: false,
         comment: false,
-        confirm: false,
-        linkModel: false,
-        pieceHistory: false
+        pieceHistory: false,
+        editProject: false,
+        profile: false
     });
     const [commentTarget, setCommentTarget] = useState<{id: string, text: string} | null>(null);
-    const [historyTarget, setHistoryTarget] = useState<Piece | null>(null);
-    const [processing, setProcessing] = useState(false);
-    const [selectedPhases, setSelectedPhases] = useState<number[]>([]);
+    const [historyTargetId, setHistoryTargetId] = useState<string | null>(null);
+    const [editTargetProject, setEditTargetProject] = useState<Project | null>(null);
+    const [profileEditData, setProfileEditData] = useState<Partial<UserProfile>>({});
     
-    // Visual State
-    const [isImageExpanded, setIsImageExpanded] = useState(false);
-    const [visualMode, setVisualMode] = useState<'2d' | '3d'>('2d');
-    const [linkInput, setLinkInput] = useState('');
+    const fileRef = useRef<HTMLInputElement>(null);
+    const projectImageRef = useRef<HTMLInputElement>(null);
+    const avatarRef = useRef<HTMLInputElement>(null);
+    const chart1Ref = useRef<HTMLDivElement>(null);
+    const chart2Ref = useRef<HTMLDivElement>(null);
 
-    // Login & Profile State
-    const [isRegistering, setIsRegistering] = useState(false);
-    const [loginEmail, setLoginEmail] = useState('');
-    const [loginPass, setLoginPass] = useState('');
-    const [regData, setRegData] = useState({ name: '', last: '', role: '', area: '' });
-    const [editProfileData, setEditProfileData] = useState({ nombre: '', apellido: '', puesto: '', area: '' });
-
-    // Refs
-    const fileInputRef = useRef<HTMLInputElement>(null);
-    const imageInputRef = useRef<HTMLInputElement>(null);
-
-    // --- Auth Logic ---
-
+    // Auth & Data effects
     useEffect(() => {
-        const unsubscribe = onAuthStateChanged(auth, async (u) => {
+        return onAuthStateChanged(auth, async (u) => {
             setUser(u);
             if (u) {
-                try {
-                    const q = query(collection(db, `artifacts/${appId}/public/data/users`), where("authUid", "==", u.uid), limit(1));
-                    const snap = await getDocs(q);
-                    if (!snap.empty) {
-                        const data = snap.docs[0].data();
-                        const profile = { id: snap.docs[0].id, ...data } as UserProfile;
-                        setUserProfile(profile);
-                        setEditProfileData({
-                            nombre: profile.nombre || '',
-                            apellido: profile.apellido || '',
-                            puesto: profile.puesto || '',
-                            area: profile.area || ''
-                        });
-                    }
-                    setModals(m => ({ ...m, login: false }));
-                } catch (e) { console.error("Error loading user profile", e); }
+                const q = query(collection(db, `artifacts/${appId}/public/data/users`), where("authUid", "==", u.uid), limit(1));
+                const snap = await getDocs(q);
+                if (!snap.empty) {
+                    const data = { id: snap.docs[0].id, ...snap.docs[0].data() } as UserProfile;
+                    setUserProfile(data);
+                    setProfileEditData(data);
+                }
+                setModals(m => ({ ...m, login: false }));
             } else {
                 setModals(m => ({ ...m, login: true }));
-                setUserProfile(null);
-                setActiveProjectId(null); 
             }
             setAuthLoading(false);
         });
-        return () => unsubscribe();
     }, []);
 
-    // Load Projects
     useEffect(() => {
         if (!user) return;
-        const q = query(collection(db, `artifacts/${appId}/public/data/projects`), orderBy('name'));
-        return onSnapshot(q, (snap) => {
+        return onSnapshot(query(collection(db, `artifacts/${appId}/public/data/projects`), orderBy('name')), (snap) => {
             setProjects(snap.docs.map(d => ({ id: d.id, ...d.data() } as Project)));
         });
     }, [user]);
 
-    // Project Data Listeners
     useEffect(() => {
         if (!activeProjectId || !user) {
-            setPieces([]);
-            setProjectImage(null);
-            setProjectLink(null);
-            return;
+            setPieces([]); setSyncLogs([]); return;
         }
         setLoadingData(true);
-        
-        const piecesCol = collection(db, `artifacts/${appId}/public/data/projects/${activeProjectId}/pieces`);
-        const unsubPieces = onSnapshot(piecesCol, (snap) => {
+        const unsubPieces = onSnapshot(collection(db, `artifacts/${appId}/public/data/projects/${activeProjectId}/pieces`), (snap) => {
             setPieces(snap.docs.map(d => ({ id: d.id, ...d.data() } as Piece)));
             setLoadingData(false);
-        }, () => setLoadingData(false));
-
-        const imgDoc = doc(db, `artifacts/${appId}/public/data/projects/${activeProjectId}/config/image`);
-        const unsubImg = onSnapshot(imgDoc, (snap) => {
-            setProjectImage(snap.exists() ? snap.data().base64Image : null);
         });
-
-        const modelDoc = doc(db, `artifacts/${appId}/public/data/projects/${activeProjectId}/config/model`);
-        const unsubModel = onSnapshot(modelDoc, (snap) => {
-            setProjectLink(snap.exists() ? snap.data().linkUrl : null);
+        const unsubLogs = onSnapshot(query(collection(db, `artifacts/${appId}/public/data/projects/${activeProjectId}/sync_logs`), orderBy('date', 'desc'), limit(50)), (snap) => {
+            setSyncLogs(snap.docs.map(d => ({ id: d.id, ...d.data() } as SyncLog)));
         });
-
-        return () => { unsubPieces(); unsubImg(); unsubModel(); };
+        return () => { unsubPieces(); unsubLogs(); };
     }, [activeProjectId, user]);
 
-    // Keyboard Listeners
-    useEffect(() => {
-        const handleEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') setIsImageExpanded(false); };
-        window.addEventListener('keydown', handleEsc);
-        return () => window.removeEventListener('keydown', handleEsc);
-    }, []);
-
-    // --- Permissions ---
-
-    const userArea = userProfile?.area;
-    const canEditState = (stateKey: string) => userArea ? AREA_PERMISSIONS[userArea]?.includes(stateKey) : false;
+    const userArea = userProfile?.area || '';
+    const canEditState = (stateKey: string) => AREA_PERMISSIONS[userArea]?.includes(stateKey);
     const isOT = userArea === "Oficina Técnica";
 
-    // --- Handlers ---
+    const activeProject = useMemo(() => projects.find(p => p.id === activeProjectId), [projects, activeProjectId]);
+    const historyTarget = useMemo(() => pieces.find(p => p.id === historyTargetId), [pieces, historyTargetId]);
 
-    const handleAuth = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setProcessing(true);
-        try {
-            if (isRegistering) {
-                const cred = await createUserWithEmailAndPassword(auth, loginEmail, loginPass);
-                const newProfile = {
-                    authUid: cred.user.uid, email: loginEmail, nombre: regData.name,
-                    apellido: regData.last, puesto: regData.role, area: regData.area, createdAt: new Date()
-                };
-                const ref = await addDoc(collection(db, `artifacts/${appId}/public/data/users`), newProfile);
-                setUserProfile({ id: ref.id, ...newProfile } as UserProfile);
-            } else {
-                await signInWithEmailAndPassword(auth, loginEmail, loginPass);
+    const filteredPieces = useMemo(() => {
+        return pieces.filter(p => {
+            if (p.eliminada) return false;
+            const sMatch = !searchTerm || p.conjunto.toLowerCase().includes(searchTerm.toLowerCase()) || (p.lote||"").toString().includes(searchTerm);
+            const pMatch = !phaseFilter || (p.lote||"").toString() === phaseFilter;
+            let stMatch = true;
+            if (stateFilter && stateValueFilter !== 'all') {
+                const comp = isStateComplete(p[stateFilter]);
+                stMatch = stateValueFilter === 'true' ? comp : !comp;
             }
-        } catch (err: any) { alert(err.message); } finally { setProcessing(false); }
+            return sMatch && pMatch && stMatch;
+        }).sort((a, b) => a.conjunto.localeCompare(b.conjunto));
+    }, [pieces, searchTerm, phaseFilter, stateFilter, stateValueFilter]);
+
+    const uniquePhases = useMemo(() => {
+        const phases = new Set(pieces.map(p => (p.lote || "").toString()).filter(v => v !== ""));
+        return Array.from(phases).sort();
+    }, [pieces]);
+
+    const stats = useMemo(() => {
+        const res = { 
+            totalKg: 0, 
+            statesKg: {} as Record<string, number>,
+            statesCount: {} as Record<string, number>,
+            despachadoSinMontar: 0,
+            listoParaDespacho: 0,
+            enFabricacion: 0,
+            completado: 0
+        };
+        STATES.forEach(s => {
+            res.statesKg[s.key] = 0;
+            res.statesCount[s.key] = 0;
+        });
+
+        // Aplicamos filtro de fase a las estadísticas
+        const relevantPieces = pieces.filter(p => {
+            if (p.eliminada) return false;
+            if (phaseFilter && (p.lote||"").toString() !== phaseFilter) return false;
+            return true;
+        });
+
+        relevantPieces.forEach(p => {
+            res.totalKg += (p.peso || 0);
+            
+            STATES.forEach(s => { 
+                if (isStateComplete(p[s.key])) {
+                    res.statesKg[s.key] += (p.peso || 0);
+                    res.statesCount[s.key] += 1;
+                }
+            });
+
+            if (isStateComplete(p.pintura) && !isStateComplete(p.despachado)) res.listoParaDespacho++;
+            if (isStateComplete(p.despachado) && !isStateComplete(p.montado)) res.despachadoSinMontar++;
+            if (!isStateComplete(p.montado)) res.enFabricacion++;
+            if (isStateComplete(p.montado)) res.completado++;
+        });
+
+        return res;
+    }, [pieces, phaseFilter]);
+
+    // Handlers
+    const handleToggleState = async (pieceId: string, stateKey: string, currentVal: any) => {
+        if (!canEditState(stateKey)) return;
+        const isDone = isStateComplete(currentVal);
+        const newState = !isDone;
+        const stateLabel = STATES.find(s => s.key === stateKey)?.label || stateKey;
+
+        const auditObj = { 
+            completado: newState, 
+            usuarioId: userProfile?.id, 
+            usuarioNombre: `${userProfile?.nombre} ${userProfile?.apellido}`, 
+            fecha: new Date() 
+        };
+
+        const batch = writeBatch(db);
+        const pieceRef = doc(db, `artifacts/${appId}/public/data/projects/${activeProjectId}/pieces`, pieceId);
+        batch.update(pieceRef, { [stateKey]: auditObj });
+
+        const logRef = doc(collection(db, `artifacts/${appId}/public/data/projects/${activeProjectId}/sync_logs`));
+        const pieceData = pieces.find(p => p.id === pieceId);
+        batch.set(logRef, {
+            date: serverTimestamp(),
+            user: `${userProfile?.nombre} ${userProfile?.apellido}`,
+            file: `Cambio de Estado`,
+            added: 0,
+            removed: 0,
+            addedDetails: `Estado "${stateLabel}" marcado como ${newState ? 'OK' : 'PENDIENTE'} para pieza ${pieceData?.conjunto}`,
+            removedDetails: ''
+        });
+
+        await batch.commit();
     };
 
-    const handleCreateProject = async (e: React.FormEvent) => {
-        e.preventDefault();
-        const form = e.target as HTMLFormElement;
-        const name = (form.elements.namedItem('pname') as HTMLInputElement).value;
-        if (name) {
-            await addDoc(collection(db, `artifacts/${appId}/public/data/projects`), { name, createdAt: new Date(), archived: false });
-            form.reset();
+    const handleSaveComment = async () => {
+        if (!commentTarget || !activeProjectId) return;
+        setProcessing(true);
+        try {
+            const pieceRef = doc(db, `artifacts/${appId}/public/data/projects/${activeProjectId}/pieces`, commentTarget.id);
+            await updateDoc(pieceRef, { comentario: commentTarget.text });
+            setModals(m => ({ ...m, comment: false }));
+            setCommentTarget(null);
+        } catch (err: any) {
+            alert("Error al guardar nota: " + err.message);
+        } finally {
+            setProcessing(false);
         }
     };
 
-    const handleExcelUpload = async (e: any) => {
-        if (!activeProjectId || !fileInputRef.current?.files?.[0]) return;
+    const handleMassPhase = async (newPhase: string) => {
+        if (!activeProjectId || selectedPieces.size === 0) return;
         setProcessing(true);
         try {
-            const excelData = await readExcel(fileInputRef.current.files[0]);
-            const batch = writeBatch(db);
-            const piecesRef = collection(db, `artifacts/${appId}/public/data/projects/${activeProjectId}/pieces`);
-            
-            excelData.forEach(p => {
-                const newRef = doc(piecesRef);
-                const newData: any = { ...p, lote: "", eliminada: false, loadedAt: new Date(), loadedBy: userProfile?.id || 'sys', comentario: "" };
-                STATES.forEach(s => newData[s.key] = { completado: false, usuarioId: null, usuarioNombre: null, fecha: null });
-                batch.set(newRef, newData);
-            });
-            await batch.commit();
-            alert("Importación exitosa");
-        } catch (err: any) { alert(err.message); } finally { setProcessing(false); if(fileInputRef.current) fileInputRef.current.value = ""; }
+            const batchSize = 500;
+            const idsArray = Array.from(selectedPieces);
+            for (let i = 0; i < idsArray.length; i += batchSize) {
+                const batch = writeBatch(db);
+                const chunk = idsArray.slice(i, i + batchSize);
+                chunk.forEach(id => {
+                    const ref = doc(db, `artifacts/${appId}/public/data/projects/${activeProjectId}/pieces`, id);
+                    batch.update(ref, { lote: newPhase });
+                });
+                await batch.commit();
+            }
+            setSelectedPieces(new Set());
+            setModals(m => ({ ...m, massPhase: false }));
+        } catch (err: any) {
+            alert("Error: " + err.message);
+        } finally {
+            setProcessing(false);
+        }
     };
 
-    const handleExportPDF = () => {
-        if (!activeProjectId) return;
-        const projectName = projects.find(p => p.id === activeProjectId)?.name || 'Proyecto';
-        const doc = new jsPDF('landscape');
+    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file || !activeProjectId) return;
         
-        // Header
-        doc.setFontSize(20);
-        doc.setTextColor(14, 59, 67); // Solana Primary Color
-        doc.text("SOLANA SRL - Reporte de Producción", 14, 20);
+        setProcessing(true);
+        try {
+            const data = await readExcel(file);
+            const totalItems = data.length;
+            const batchSize = 450;
+            
+            for (let i = 0; i < totalItems; i += batchSize) {
+                const batch = writeBatch(db);
+                const chunk = data.slice(i, i + batchSize);
+                
+                chunk.forEach(item => {
+                    const ref = doc(collection(db, `artifacts/${appId}/public/data/projects/${activeProjectId}/pieces`));
+                    batch.set(ref, {
+                        ...item,
+                        eliminada: false,
+                        comentario: '',
+                        loadedAt: serverTimestamp(),
+                        loadedBy: `${userProfile?.nombre} ${userProfile?.apellido}`
+                    });
+                });
+
+                if (i + batchSize >= totalItems) {
+                    const logRef = doc(collection(db, `artifacts/${appId}/public/data/projects/${activeProjectId}/sync_logs`));
+                    batch.set(logRef, {
+                        date: serverTimestamp(),
+                        user: `${userProfile?.nombre} ${userProfile?.apellido}`,
+                        file: file.name,
+                        added: totalItems,
+                        removed: 0,
+                        addedDetails: `Importación masiva de ${totalItems} piezas finalizada correctamente.`,
+                        removedDetails: ''
+                    });
+                }
+                await batch.commit();
+            }
+            alert(`Sincronización completa: ${totalItems} piezas importadas.`);
+        } catch (err: any) {
+            alert("Fallo de importación: " + err.message);
+            console.error(err);
+        } finally {
+            setProcessing(false);
+            if (fileRef.current) fileRef.current.value = '';
+        }
+    };
+
+    const handleProjectImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file || !editTargetProject) return;
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            const base64String = event.target?.result as string;
+            setEditTargetProject(prev => prev ? { ...prev, imageUrl: base64String } : null);
+        };
+        reader.readAsDataURL(file);
+    };
+
+    const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            const base64String = event.target?.result as string;
+            setProfileEditData(prev => ({ ...prev, avatarUrl: base64String }));
+        };
+        reader.readAsDataURL(file);
+    };
+
+    const handleUpdateProfile = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!userProfile?.id) return;
+        setProcessing(true);
+        try {
+            const userRef = doc(db, `artifacts/${appId}/public/data/users`, userProfile.id);
+            const updatedData = {
+                nombre: profileEditData.nombre || '',
+                apellido: profileEditData.apellido || '',
+                area: profileEditData.area || '',
+                avatarUrl: profileEditData.avatarUrl || ''
+            };
+            await updateDoc(userRef, updatedData);
+            setUserProfile(prev => prev ? ({ ...prev, ...updatedData }) : null);
+            setModals(m => ({ ...m, profile: false }));
+            alert("Perfil actualizado correctamente");
+        } catch (err: any) {
+            alert("Error al actualizar perfil: " + err.message);
+        } finally {
+            setProcessing(false);
+        }
+    };
+
+    const handleUpdateProjectAssets = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!editTargetProject) return;
+        setProcessing(true);
+        try {
+            const projectRef = doc(db, `artifacts/${appId}/public/data/projects`, editTargetProject.id);
+            await updateDoc(projectRef, {
+                imageUrl: editTargetProject.imageUrl || '',
+                externalLink: editTargetProject.externalLink || ''
+            });
+            setModals(m => ({...m, editProject: false}));
+            setEditTargetProject(null);
+        } catch (e: any) {
+            alert("Error al actualizar multimedia: " + e.message);
+        } finally {
+            setProcessing(false);
+        }
+    };
+
+    const handleExportExcel = () => {
+        if (!pieces.length || !activeProject) return;
         
-        doc.setFontSize(12);
-        doc.setTextColor(100);
-        doc.text(`Obra: ${projectName}`, 14, 30);
-        doc.text(`Fecha: ${new Date().toLocaleDateString('es-AR')}`, 14, 36);
+        const dataToExport = pieces.filter(p => !p.eliminada).map(p => {
+            const row: any = {
+                'Conjunto/Pieza': p.conjunto,
+                'Fase': p.lote || '---',
+                'Masa (kg)': (p.peso || 0).toFixed(2),
+                'Comentario': p.comentario || '',
+            };
+            
+            STATES.forEach(s => {
+                const status = p[s.key];
+                row[s.label] = isStateComplete(status) ? 'COMPLETADO' : 'PENDIENTE';
+            });
+            
+            return row;
+        });
 
-        const tableHeaders = [
-            'Conjunto', 'N°', 'Peso (kg)', 'Fase', 
-            ...STATES.map(s => s.short)
-        ];
+        const worksheet = XLSX.utils.json_to_sheet(dataToExport);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, "Planilla");
+        XLSX.writeFile(workbook, `Seguimiento_${activeProject.name}_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    };
 
-        const tableRows = filteredPieces.map(p => [
+    const handleExportPiecesPDF = () => {
+        if (!filteredPieces.length || !activeProject) return;
+        const doc = new jsPDF('l', 'mm', 'a4');
+        const title = `Listado de Piezas - ${activeProject.name}`;
+        
+        doc.setFontSize(16);
+        doc.text(title, 14, 20);
+        doc.setFontSize(10);
+        doc.text(`Fecha de Reporte: ${new Date().toLocaleString()}`, 14, 28);
+
+        const tableHeaders = ['Conjunto/Pieza', 'Fase', 'Peso (kg)', ...STATES.map(s => s.label)];
+        const tableData = filteredPieces.map(p => [
             p.conjunto,
-            p.numero,
-            p.peso.toFixed(2),
-            p.lote || '-',
+            p.lote || '---',
+            (p.peso || 0).toFixed(2),
             ...STATES.map(s => isStateComplete(p[s.key]) ? 'OK' : '-')
         ]);
 
         autoTable(doc, {
             head: [tableHeaders],
-            body: tableRows,
-            startY: 45,
-            theme: 'striped',
-            headStyles: { 
-                fillColor: [14, 59, 67], 
-                textColor: [255, 255, 255],
-                fontSize: 9,
-                fontStyle: 'bold'
-            },
-            bodyStyles: { fontSize: 8 },
-            alternateRowStyles: { fillColor: [248, 250, 252] },
-            margin: { top: 45 }
+            body: tableData,
+            startY: 35,
+            theme: 'grid',
+            styles: { fontSize: 8, cellPadding: 2 },
+            headStyles: { fillColor: [51, 65, 85], textColor: [255, 255, 255] },
+            alternateRowStyles: { fillColor: [248, 250, 252] }
         });
 
-        doc.save(`Solana_Reporte_${projectName.replace(/\s+/g, '_')}_${new Date().getTime()}.pdf`);
+        doc.save(`Piezas_${activeProject.name}_${new Date().toISOString().slice(0, 10)}.pdf`);
     };
 
-    const handleExportExcel = () => {
-        if (!activeProjectId) return;
-        const projectName = projects.find(p => p.id === activeProjectId)?.name || 'Proyecto';
-        const dataToExport = filteredPieces.map(p => {
-            const base: any = {
-                'Conjunto': p.conjunto,
-                'N°': p.numero,
-                'Peso (kg)': p.peso,
-                'Fase': p.lote || '-'
-            };
-            STATES.forEach(s => {
-                base[s.label] = isStateComplete(p[s.key]) ? 'Completado' : 'Pendiente';
+    const handleExportMonitorPDF = async () => {
+        if (!activeProject) return;
+        setProcessing(true);
+        try {
+            const doc = new jsPDF('p', 'mm', 'a4');
+            const margin = 14;
+
+            // Cabecera
+            doc.setFillColor(51, 65, 85);
+            doc.rect(0, 0, 210, 40, 'F');
+            doc.setTextColor(255, 255, 255);
+            doc.setFontSize(22);
+            doc.text("INFORME DE PRODUCCIÓN", margin, 20);
+            doc.setFontSize(12);
+            doc.text(activeProject.name, margin, 30);
+            
+            doc.setTextColor(51, 65, 85);
+            doc.setFontSize(10);
+            doc.text(`Generado por: ${userProfile?.nombre} ${userProfile?.apellido}`, margin, 50);
+            doc.text(`Fecha: ${new Date().toLocaleString()}`, margin, 55);
+
+            // Resumen Global
+            doc.setFontSize(14);
+            doc.text("Resumen de Avance", margin, 70);
+            const cert = stats.totalKg > 0 ? ((stats.statesKg['montado'] / stats.totalKg) * 100).toFixed(1) : 0;
+            
+            autoTable(doc, {
+                startY: 75,
+                head: [['Indicador', 'Valor']],
+                body: [
+                    ['Porcentaje de Certificación (Montado)', `${cert}%`],
+                    ['Tonelaje Total de Obra', `${(stats.totalKg / 1000).toFixed(2)} toneladas`],
+                    ['Piezas en Tránsito / Logística', `${stats.despachadoSinMontar} unidades`],
+                    ['Piezas Listas para Despacho', `${stats.listoParaDespacho} unidades`],
+                    ['Piezas en Proceso de Fábrica', `${stats.enFabricacion} unidades`],
+                    ['Piezas Finalizadas', `${stats.completado} unidades`]
+                ],
+                theme: 'striped',
+                headStyles: { fillColor: [13, 148, 136] }
             });
-            return base;
-        });
 
-        const ws = XLSX.utils.json_to_sheet(dataToExport);
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "Piezas");
-        XLSX.writeFile(wb, `Solana_Export_${projectName.replace(/\s+/g, '_')}.xlsx`);
-    };
+            // Detalle por Etapa
+            doc.text("Avance por Etapa de Fabricación", margin, (doc as any).lastAutoTable.finalY + 15);
+            autoTable(doc, {
+                startY: (doc as any).lastAutoTable.finalY + 20,
+                head: [['Etapa', 'Peso Procesado (kg)', 'Unidades OK']],
+                body: STATES.map(s => [
+                    s.label,
+                    (stats.statesKg[s.key] || 0).toLocaleString(),
+                    stats.statesCount[s.key] || 0
+                ]),
+                theme: 'grid'
+            });
 
-    const toggleState = async (pieceId: string, stateKey: string, currentVal: any) => {
-        if (!activeProjectId || !userProfile || !canEditState(stateKey)) return;
-        const isDone = isStateComplete(currentVal);
-        const auditObj: AuditStatus = {
-            completado: !isDone,
-            usuarioId: userProfile.id || null,
-            usuarioNombre: `${userProfile.nombre} ${userProfile.apellido}`,
-            fecha: new Date()
-        };
-        await updateDoc(doc(db, `artifacts/${appId}/public/data/projects/${activeProjectId}/pieces`, pieceId), { [stateKey]: auditObj });
-    };
+            // Página 2: Visualización de Gráficos
+            doc.addPage();
+            doc.setFillColor(51, 65, 85);
+            doc.rect(0, 0, 210, 20, 'F');
+            doc.setTextColor(255, 255, 255);
+            doc.setFontSize(12);
+            doc.text("REPORTE VISUAL DE MONITOREO", margin, 13);
+            
+            doc.setTextColor(51, 65, 85);
+            doc.setFontSize(14);
+            
+            let currentY = 35;
 
-    // --- Computed Data ---
-
-    const activeProjects = useMemo(() => projects.filter(p => !p.archived), [projects]);
-    const activePieces = useMemo(() => pieces.filter(p => !p.eliminada), [pieces]);
-    
-    const uniquePhases = useMemo(() => {
-        const s = new Set<number>();
-        activePieces.forEach(p => { if(p.lote) s.add(Number(p.lote)) });
-        return Array.from(s).sort((a,b) => a-b);
-    }, [activePieces]);
-
-    const filteredPieces = useMemo(() => {
-        return activePieces.filter(p => {
-            const s = searchTerm.toLowerCase();
-            const mSearch = !searchTerm || p.conjunto.toLowerCase().includes(s) || p.lote.toString().includes(s);
-            const mPhase = !phaseFilter || p.lote.toString() === phaseFilter;
-            let mState = true;
-            if (stateFilter && stateValueFilter !== 'all') {
-                const comp = isStateComplete(p[stateFilter]);
-                mState = (stateValueFilter === 'true' && comp) || (stateValueFilter === 'false' && !comp);
+            // Capturar Gráfico 1
+            if (chart1Ref.current) {
+                const canvas1 = await html2canvas(chart1Ref.current, { scale: 2 });
+                const imgData1 = canvas1.toDataURL('image/png');
+                doc.text("Flujo de Producción (Tonelaje)", margin, currentY);
+                doc.addImage(imgData1, 'PNG', margin, currentY + 5, 180, 80);
+                currentY += 105;
             }
-            return mSearch && mPhase && mState;
-        });
-    }, [activePieces, searchTerm, phaseFilter, stateFilter, stateValueFilter]);
 
-    const stats = useMemo(() => {
-        const res = { kg: 0, states: {} as any };
-        STATES.forEach(s => res.states[s.key] = 0);
-        filteredPieces.forEach(p => {
-            res.kg += (p.peso || 0);
-            STATES.forEach(s => { if(isStateComplete(p[s.key])) res.states[s.key] += (p.peso || 0); });
-        });
-        return res;
-    }, [filteredPieces]);
-
-    const dashboardData = useMemo(() => {
-        const chartPieces = activePieces.filter(p => selectedPhases.includes(Number(p.lote || 0)));
-        const totalKg = chartPieces.reduce((sum, p) => sum + p.peso, 0);
-        const totalPieces = chartPieces.length;
-        
-        const bars = STATES.map(st => {
-            const kg = chartPieces.filter(p => isStateComplete(p[st.key])).reduce((sum, p) => sum + p.peso, 0);
-            return { name: st.label, short: st.short, kg: Math.round(kg), percentage: totalKg > 0 ? (kg/totalKg)*100 : 0, color: st.color };
-        });
-
-        const lastStage = bars[bars.length - 1];
-        const progress = lastStage ? lastStage.percentage : 0;
-        const remainingKg = totalKg - (lastStage ? lastStage.kg : 0);
-        
-        // Find Bottleneck: Stage with most weight processed but not moved to next
-        let bottleneck = { name: 'Ninguno', kg: 0, color: '#94a3b8' };
-        for(let i=0; i<bars.length - 1; i++) {
-            const accumulation = bars[i].kg - bars[i+1].kg;
-            if(accumulation > bottleneck.kg) {
-                bottleneck = { name: bars[i].name, kg: accumulation, color: bars[i].color };
+            // Capturar Gráfico 2
+            if (chart2Ref.current) {
+                const canvas2 = await html2canvas(chart2Ref.current, { scale: 2 });
+                const imgData2 = canvas2.toDataURL('image/png');
+                doc.text("Conteo Unitario por Etapa", margin, currentY);
+                doc.addImage(imgData2, 'PNG', margin, currentY + 5, 180, 80);
             }
+
+            doc.save(`Monitor_${activeProject.name}_${new Date().toISOString().slice(0, 10)}.pdf`);
+        } catch (error) {
+            console.error("Error al exportar PDF:", error);
+            alert("Ocurrió un error al generar el PDF de los gráficos.");
+        } finally {
+            setProcessing(false);
         }
-
-        const piecesCompleted = chartPieces.filter(p => isStateComplete(p[STATES[STATES.length-1].key])).length;
-
-        return { 
-            bars, 
-            totalKg: Math.round(totalKg), 
-            progress, 
-            remainingKg: Math.round(remainingKg),
-            totalPieces,
-            piecesCompleted,
-            bottleneck
-        };
-    }, [activePieces, selectedPhases]);
+    };
 
     if (authLoading) return (
-        <div className="h-screen w-screen flex flex-col items-center justify-center bg-slate-50 gap-4">
-            <Loader2 className="w-12 h-12 animate-spin text-[#0E3B43]" />
-            <p className="text-slate-400 font-medium animate-pulse">Cargando sistema...</p>
+        <div className="h-screen w-screen flex flex-col items-center justify-center bg-white">
+            <Loader2 className="w-10 h-10 animate-spin text-slate-300" />
+            <p className="mt-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Accediendo...</p>
         </div>
     );
 
     if (modals.login) {
         return (
             <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6">
-                <div className="w-full max-w-md bg-white rounded-[2.5rem] shadow-2xl shadow-slate-200/50 p-12 border border-slate-100 flex flex-col items-center">
-                    <div className="text-center mb-10 w-full flex flex-col items-center">
-                        <SolanaLogoFull className="mb-8" />
-                        <h1 className="text-xl font-bold text-slate-800 tracking-tight">Gestión de Producción</h1>
-                        <p className="text-slate-400 mt-2 font-medium italic text-sm">Ingrese sus credenciales para continuar</p>
-                    </div>
-
-                    <div className="flex bg-slate-100 p-1.5 rounded-2xl mb-8 w-full">
-                        <button onClick={() => setIsRegistering(false)} className={`flex-1 py-3 text-sm font-bold rounded-xl transition-all ${!isRegistering ? 'bg-white text-[#0E3B43] shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Ingresar</button>
-                        <button onClick={() => setIsRegistering(true)} className={`flex-1 py-3 text-sm font-bold rounded-xl transition-all ${isRegistering ? 'bg-white text-[#0E3B43] shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Registro</button>
-                    </div>
-
-                    <form onSubmit={handleAuth} className="space-y-4 w-full">
-                        {isRegistering && (
-                            <div className="grid grid-cols-2 gap-3">
-                                <input required placeholder="Nombre" className="input-modern" value={regData.name} onChange={e => setRegData({...regData, name: e.target.value})} />
-                                <input required placeholder="Apellido" className="input-modern" value={regData.last} onChange={e => setRegData({...regData, last: e.target.value})} />
-                            </div>
-                        )}
-                        <input required type="email" placeholder="Email" className="input-modern" value={loginEmail} onChange={e => setLoginEmail(e.target.value)} />
-                        <input required type="password" placeholder="Contraseña" className="input-modern" value={loginPass} onChange={e => setLoginPass(e.target.value)} />
-                        <Button type="submit" loading={processing} className="w-full mt-6 h-14 text-lg">
-                            {isRegistering ? 'Crear Cuenta' : 'Iniciar Sesión'}
-                        </Button>
+                <div className="w-full max-w-md bg-white rounded-[2.5rem] shadow-2xl p-12 flex flex-col items-center border border-slate-200">
+                    <img src="https://www.solanasrl.com.ar/wp-content/uploads/cropped-sticky-2.png" className="w-48 mb-12" alt="Solana" />
+                    <h1 className="text-lg font-black text-slate-800 uppercase tracking-widest mb-8 text-center">Acceso Industrial</h1>
+                    <form className="w-full space-y-4" onSubmit={async (e) => {
+                        e.preventDefault();
+                        const email = (e.target as any).email.value;
+                        const pass = (e.target as any).pass.value;
+                        try { await signInWithEmailAndPassword(auth, email, pass); } catch (e: any) { alert("Usuario o contraseña incorrectos"); }
+                    }}>
+                        <input name="email" type="email" required placeholder="USUARIO" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-6 py-4 text-slate-800 placeholder:text-slate-400 outline-none focus:border-slate-400 transition-all font-bold text-xs tracking-widest" />
+                        <input name="pass" type="password" required placeholder="CONTRASEÑA" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-6 py-4 text-slate-800 placeholder:text-slate-400 outline-none focus:border-slate-400 transition-all font-bold text-xs tracking-widest" />
+                        <Button type="submit" className="w-full h-14">Entrar</Button>
                     </form>
                 </div>
             </div>
         );
     }
 
+    const SidebarContent = () => (
+        <>
+            <div className="p-8">
+                <div className="flex items-center gap-4 mb-10">
+                    <SolanaSymbol />
+                    <div>
+                        <h2 className="text-white font-black tracking-tight text-lg uppercase leading-none">SOLANA</h2>
+                        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-teal-400 mt-1">Estructural</p>
+                    </div>
+                </div>
+                <div className="space-y-1">
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block px-2 mb-3">Navegación</label>
+                    <button onClick={() => { setActiveView('pieces'); setMobileMenuOpen(false); }} className={`w-full flex items-center gap-4 px-5 py-4 rounded-xl transition-all duration-200 ${activeView === 'pieces' ? 'bg-white/10 text-white' : 'text-slate-300 hover:text-white hover:bg-white/5'}`}>
+                        <Database className="w-5 h-5" />
+                        <span className="text-xs font-black uppercase tracking-widest">Piezas</span>
+                    </button>
+                    <button onClick={() => { setActiveView('charts'); setMobileMenuOpen(false); }} className={`w-full flex items-center gap-4 px-5 py-4 rounded-xl transition-all duration-200 ${activeView === 'charts' ? 'bg-white/10 text-white' : 'text-slate-300 hover:text-white hover:bg-white/5'}`}>
+                        <LayoutDashboard className="w-5 h-5" />
+                        <span className="text-xs font-black uppercase tracking-widest">Monitor</span>
+                    </button>
+                </div>
+            </div>
+            <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6">
+                <div className="bg-white/5 rounded-2xl p-6 border border-white/5">
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-4">Proyecto Activo</label>
+                    <select 
+                        className="w-full bg-transparent text-xs font-black text-white uppercase tracking-tight outline-none cursor-pointer"
+                        value={activeProjectId || ''}
+                        onChange={(e) => { setActiveProjectId(e.target.value); setMobileMenuOpen(false); }}
+                    >
+                        <option value="" className="text-slate-900">Seleccionar Obra...</option>
+                        {projects.filter(p => !p.archived).map(p => <option key={p.id} value={p.id} className="text-slate-900">{p.name}</option>)}
+                    </select>
+                </div>
+            </div>
+            <div className="p-8 border-t border-white/5 bg-black/5">
+                <div className="flex items-center gap-4 mb-6 group cursor-pointer" onClick={() => { setProfileEditData(userProfile || {}); setModals(m => ({ ...m, profile: true })); setMobileMenuOpen(false); }}>
+                    <div className="relative">
+                        <div className="w-10 h-10 rounded-xl bg-teal-500 flex items-center justify-center text-slate-900 font-black overflow-hidden border border-white/10 group-hover:border-teal-400 transition-all">
+                            {userProfile?.avatarUrl ? (
+                                <img src={userProfile.avatarUrl} className="w-full h-full object-cover" alt="User" />
+                            ) : (
+                                userProfile?.nombre?.charAt(0)
+                            )}
+                        </div>
+                        <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-slate-700 rounded-full flex items-center justify-center border border-white/20 group-hover:bg-teal-500 transition-colors">
+                            <Settings className="w-2.5 h-2.5 text-white" />
+                        </div>
+                    </div>
+                    <div className="overflow-hidden">
+                        <p className="text-xs font-black text-white truncate group-hover:text-teal-400 transition-colors">{userProfile?.nombre} {userProfile?.apellido}</p>
+                        <p className="text-[9px] font-bold text-slate-400 uppercase truncate leading-none mt-1">{userArea}</p>
+                    </div>
+                </div>
+                <button onClick={() => signOut(auth)} className="w-full flex items-center justify-center gap-3 px-4 py-3 rounded-xl border border-white/10 text-slate-400 hover:text-red-400 transition-all text-[10px] font-black uppercase tracking-widest">
+                    <LogOut className="w-4 h-4" /> Desconexión
+                </button>
+            </div>
+        </>
+    );
+
     return (
-        <div className="min-h-screen bg-[#f8fafc] flex flex-col md:flex-row text-slate-800">
-            
-            {/* Sidebar */}
-            <aside className="hidden md:flex flex-col w-72 bg-white border-r border-slate-200 h-screen sticky top-0 z-30 shadow-[4px_0_24px_-10px_rgba(0,0,0,0.03)]">
-                <div className="p-8 border-b border-slate-100">
-                    <div className="flex items-center gap-4 mb-10">
-                        <SolanaSymbol />
-                        <div>
-                            <h2 className="font-extrabold text-slate-900 leading-none tracking-tight">SOLANA SRL</h2>
-                            <p className="text-[9px] text-slate-400 font-black uppercase tracking-[2px] mt-1.5">Producción v2.0</p>
-                        </div>
-                    </div>
-                    
-                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 mb-6">
-                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3 block">Obra Activa</label>
-                        <div className="relative group">
-                            <select 
-                                className="w-full bg-transparent text-sm font-bold text-slate-700 outline-none appearance-none cursor-pointer group-hover:text-[#0E3B43] transition-colors"
-                                value={activeProjectId || ''}
-                                onChange={(e) => setActiveProjectId(e.target.value || null)}
-                            >
-                                <option value="">Seleccionar...</option>
-                                {activeProjects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                            </select>
-                            <ChevronDown className="w-4 h-4 absolute right-0 top-1/2 -translate-y-1/2 text-slate-300 pointer-events-none" />
-                        </div>
-                    </div>
-                </div>
+        <div className="h-screen flex bg-slate-50 overflow-hidden relative">
+            {/* Mobile Burger Menu */}
+            <div className="lg:hidden fixed top-4 left-4 z-[100]">
+                <button 
+                    onClick={() => setMobileMenuOpen(!mobileMenuOpen)} 
+                    className="p-3 bg-slate-700 text-white rounded-xl shadow-xl active:scale-95 transition-all"
+                >
+                    {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+                </button>
+            </div>
 
-                <nav className="flex-1 px-4 py-8 space-y-3 overflow-y-auto custom-scroll">
-                    <button onClick={() => setActiveView('pieces')} className={`nav-item ${activeView === 'pieces' ? 'active' : ''}`}>
-                        <List className="w-5 h-5 shrink-0" />
-                        <span className="flex-1 text-left leading-none">Gestión de Piezas</span>
-                    </button>
-                    <button onClick={() => setActiveView('charts')} className={`nav-item ${activeView === 'charts' ? 'active' : ''}`}>
-                        <BarChart3 className="w-5 h-5 shrink-0" />
-                        <span className="flex-1 text-left leading-none">Panel de Control</span>
-                    </button>
-                </nav>
-
-                <div className="p-6 border-t border-slate-100 bg-slate-50/30">
-                    <div className="flex items-center gap-3 p-3 bg-white rounded-2xl border border-slate-100 mb-4 shadow-sm">
-                        <div className="w-10 h-10 rounded-xl bg-[#0E3B43]/10 flex items-center justify-center text-[#0E3B43] font-black">
-                            {userProfile?.nombre?.charAt(0)}
-                        </div>
-                        <div className="overflow-hidden">
-                            <p className="text-sm font-bold text-slate-700 truncate">{userProfile?.nombre} {userProfile?.apellido}</p>
-                            <p className="text-[10px] text-slate-400 font-bold truncate uppercase tracking-tighter">{userProfile?.puesto}</p>
-                        </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                        <button onClick={() => setModals(m => ({...m, profile: true}))} className="action-btn" title="Perfil"><Settings className="w-4 h-4" /></button>
-                        <button onClick={() => signOut(auth)} className="action-btn text-red-500 hover:bg-red-50 hover:border-red-100" title="Salir"><LogOut className="w-4 h-4" /></button>
-                    </div>
-                </div>
+            {/* Sidebar (Desktop) */}
+            <aside className="hidden lg:flex w-72 bg-slate-700 h-full flex-col z-50 shadow-2xl">
+                <SidebarContent />
             </aside>
 
-            {/* Content Area */}
-            <main className="flex-1 p-4 md:p-8 lg:p-10 overflow-y-auto max-h-screen custom-scroll bg-[#f8fafc]">
-                {!activeProjectId ? (
-                    <div className="h-full flex flex-col items-center justify-center text-slate-400 animate-in fade-in zoom-in duration-500">
-                        <div className="w-32 h-32 bg-white rounded-[2.5rem] flex items-center justify-center mb-8 shadow-xl shadow-slate-200/50 border border-slate-100">
-                            <Building className="w-12 h-12 text-slate-200" />
-                        </div>
-                        <h2 className="text-2xl font-extrabold text-slate-800 mb-2">Comienza ahora</h2>
-                        <p className="text-slate-400 max-w-xs text-center font-medium">Selecciona una obra en el menú lateral para cargar los datos de producción.</p>
-                        <Button onClick={() => setModals(m => ({...m, manageProjects: true}))} variant="secondary" className="mt-8">
-                             Administrar Obras <ArrowRight className="w-4 h-4" />
-                        </Button>
+            {/* Sidebar (Mobile Overlay) */}
+            <div 
+                className={`lg:hidden fixed inset-0 z-[90] bg-slate-900/60 backdrop-blur-sm transition-opacity duration-300 ${mobileMenuOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+                onClick={() => setMobileMenuOpen(false)}
+            />
+            <aside 
+                className={`lg:hidden fixed left-0 top-0 h-full w-72 bg-slate-700 z-[100] flex flex-col shadow-2xl transition-transform duration-300 transform ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}
+            >
+                <SidebarContent />
+            </aside>
+
+            {/* Main Content */}
+            <main className="flex-1 overflow-y-auto h-screen custom-scroll bg-[#f8fafc] w-full">
+                {processing && (
+                    <div className="fixed inset-0 z-[200] flex flex-col items-center justify-center bg-slate-900/60 backdrop-blur-sm p-6 text-center">
+                        <Loader2 className="w-12 h-12 md:w-16 md:h-16 animate-spin text-teal-400 mb-6" />
+                        <h2 className="text-xl md:text-2xl font-black text-white uppercase tracking-widest">Sincronizando...</h2>
+                        <p className="text-slate-300 font-bold mt-2 text-sm">Estamos procesando el lote de información, por favor espere.</p>
                     </div>
-                ) : (
-                    <div className="max-w-[1600px] mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-5 duration-700">
-                        
-                        {/* Header Stats */}
-                        <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
-                            
-                            {/* Summary Card */}
-                            <div className="xl:col-span-3 glass-card rounded-[2rem] p-8 border border-white shadow-xl shadow-slate-200/40">
-                                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-8">
-                                    <div>
-                                        <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">Estado de Obra</h1>
-                                        <p className="text-slate-400 font-medium mt-1">Monitoreo de avance y tonelaje</p>
-                                    </div>
-                                    <div className="px-6 py-3 bg-white border border-slate-200 rounded-2xl shadow-sm">
-                                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-[2px] block mb-1">Carga Total</span>
-                                        <span className="text-2xl font-black text-[#0E3B43]">{stats.kg.toLocaleString('es-AR')} <small className="text-sm font-bold text-slate-400">kg</small></span>
-                                    </div>
-                                </div>
-                                
-                                <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-4">
-                                    {STATES.map(st => {
-                                        const kg = stats.states[st.key];
-                                        const perc = stats.kg > 0 ? (kg / stats.kg) * 100 : 0;
-                                        return (
-                                            <div key={st.key} className="group relative bg-white/50 hover:bg-white p-4 rounded-2xl border border-slate-100 shadow-sm transition-all hover:shadow-md hover:-translate-y-1">
-                                                <div className="h-1 w-8 rounded-full mb-3" style={{backgroundColor: st.color}}></div>
-                                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-tighter mb-1">{st.label}</p>
-                                                <div className="flex items-baseline gap-1">
-                                                    <span className="text-lg font-black text-slate-800">{kg.toLocaleString('es-AR', {maximumFractionDigits:0})}</span>
-                                                    <span className="text-[10px] font-bold text-slate-400">kg</span>
-                                                </div>
-                                                <div className="mt-2 h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
-                                                    <div className="h-full transition-all duration-1000" style={{width: `${perc}%`, backgroundColor: st.color}}></div>
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            </div>
-
-                            {/* Viewer Card */}
-                            <div className="relative group rounded-[2rem] overflow-hidden shadow-xl shadow-slate-200/40 border border-slate-200 bg-white h-auto min-h-[340px] flex flex-col">
-                                <div className="p-4 border-b border-slate-100 flex gap-2 justify-center bg-slate-50/50 backdrop-blur-sm z-10">
-                                    <button onClick={() => setVisualMode('2d')} className={`mode-toggle ${visualMode === '2d' ? 'active' : ''}`}><ImageIcon className="w-4 h-4" /> 2D</button>
-                                    <button onClick={() => setVisualMode('3d')} className={`mode-toggle ${visualMode === '3d' ? 'active' : ''}`}><Layers className="w-4 h-4" /> 3D</button>
-                                </div>
-                                <div className="flex-1 bg-slate-50 relative flex items-center justify-center">
-                                    {visualMode === '2d' ? (
-                                        projectImage ? (
-                                            <img src={projectImage} alt="Plano" onClick={() => setIsImageExpanded(true)} className="w-full h-full object-contain cursor-zoom-in group-hover:scale-[1.02] transition-transform" />
-                                        ) : (
-                                            <div className="flex flex-col items-center opacity-20"><ImageIcon className="w-12 h-12 mb-2"/><p className="text-xs font-bold uppercase tracking-widest">Sin imagen</p></div>
-                                        )
-                                    ) : (
-                                        projectLink ? (
-                                            <iframe src={projectLink} className="w-full h-full border-0" title="Model Viewer" allowFullScreen />
-                                        ) : (
-                                            <div className="flex flex-col items-center text-slate-300 p-8 text-center">
-                                                <Monitor className="w-12 h-12 mb-4 opacity-20"/>
-                                                <p className="text-xs font-bold uppercase tracking-widest mb-6">Sin enlace 3D configurado</p>
-                                                {isOT && (
-                                                    <Button variant="secondary" onClick={() => setModals(m => ({...m, linkModel: true}))} className="scale-90">
-                                                        <LinkIcon className="w-4 h-4" /> Vincular Ahora
-                                                    </Button>
-                                                )}
-                                            </div>
-                                        )
-                                    )}
-                                    
-                                    {/* Action Buttons for OT */}
-                                    {isOT && (
-                                        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2 z-20">
-                                            <Button 
-                                                variant="secondary" 
-                                                onClick={() => visualMode === '2d' ? imageInputRef.current?.click() : setModals(m => ({...m, linkModel: true}))} 
-                                                className="h-10 text-[10px] uppercase font-bold tracking-widest bg-white/90 backdrop-blur shadow-lg border border-slate-200"
-                                            >
-                                                {visualMode === '2d' ? <ImageIcon className="w-4 h-4" /> : <LinkIcon className="w-4 h-4" />}
-                                                {visualMode === '2d' ? 'Actualizar Plano' : 'Actualizar Link 3D'}
-                                            </Button>
-                                            
-                                            {visualMode === '2d' && (
-                                                <input type="file" ref={imageInputRef} accept="image/*" className="hidden" onChange={async (e) => {
-                                                    const file = e.target.files?.[0];
-                                                    if (!file) return;
-                                                    const reader = new FileReader();
-                                                    reader.onload = async (ev) => {
-                                                        await setDoc(doc(db, `artifacts/${appId}/public/data/projects/${activeProjectId}/config/image`), { base64Image: ev.target?.result, updatedAt: new Date() });
-                                                    };
-                                                    reader.readAsDataURL(file);
-                                                }} />
-                                            )}
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
+                )}
+                
+                <div className="w-full max-w-[1600px] mx-auto p-4 md:p-10 lg:p-14 space-y-6 md:space-y-10">
+                    {!activeProjectId ? (
+                        <div className="h-[70vh] flex flex-col items-center justify-center px-6 text-center">
+                            <Building className="w-12 h-12 md:w-16 md:h-16 text-slate-200 mb-6" />
+                            <h2 className="text-xl md:text-2xl font-black text-slate-800 uppercase tracking-widest">Gestión de Obra</h2>
+                            <p className="text-slate-500 text-sm font-bold mt-2">Seleccione una obra activa para comenzar o gestione sus proyectos.</p>
+                            <Button onClick={() => setModals(m => ({...m, projects: true}))} variant="secondary" className="mt-8 px-10">Administrar Proyectos</Button>
                         </div>
-
-                        {activeView === 'pieces' && (
-                            <div className="space-y-6">
-                                {/* Toolbar */}
-                                <div className="glass-card p-4 rounded-2xl border border-white shadow-lg shadow-slate-200/30 flex flex-col lg:flex-row items-center justify-between gap-4">
-                                    <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
-                                        <div className="relative flex-1 sm:min-w-[320px]">
-                                            <Search className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-                                            <input 
-                                                placeholder="Buscar por conjunto o fase..." 
-                                                className="input-modern pl-11 h-11" 
-                                                value={searchTerm} 
-                                                onChange={e => setSearchTerm(e.target.value)} 
-                                            />
-                                        </div>
-                                        <div className="flex gap-2">
-                                            <select className="input-modern h-11 text-xs font-bold min-w-[140px]" value={stateFilter} onChange={e => setStateFilter(e.target.value)}>
-                                                <option value="">Cualquier Estado</option>
-                                                {STATES.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
-                                            </select>
-                                            <select className="input-modern h-11 text-xs font-bold" disabled={!stateFilter} value={stateValueFilter} onChange={e => setStateValueFilter(e.target.value)}>
-                                                <option value="all">Ver todos</option>
-                                                <option value="true">Completados</option>
-                                                <option value="false">Pendientes</option>
-                                            </select>
-                                        </div>
-                                    </div>
-                                    
-                                    <div className="flex flex-wrap gap-2 w-full lg:w-auto">
-                                        {isOT && (
-                                            <Button variant="primary" onClick={() => fileInputRef.current?.click()} loading={processing} className="flex-1 lg:flex-none">
-                                                <FileSpreadsheet className="w-4 h-4" /> Importar
-                                            </Button>
-                                        )}
-                                        <Button variant="secondary" onClick={handleExportExcel} className="flex-1 lg:flex-none">
-                                            <Download className="w-4 h-4" /> Excel
-                                        </Button>
-                                        <Button variant="secondary" onClick={handleExportPDF} className="flex-1 lg:flex-none">
-                                            <FileText className="w-4 h-4" /> PDF
-                                        </Button>
-                                        <input type="file" ref={fileInputRef} className="hidden" accept=".xlsx" onChange={handleExcelUpload} />
+                    ) : (
+                        <div className="animate-in fade-in slide-in-from-bottom-5 duration-500 space-y-6 md:space-y-10">
+                            {/* Header Panel */}
+                            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 bg-white p-5 md:p-8 rounded-[1.5rem] md:rounded-[2.5rem] border border-slate-200 shadow-sm">
+                                <div className="w-full md:w-auto">
+                                    <h1 className="text-2xl md:text-4xl font-black text-slate-900 tracking-tighter uppercase truncate">{activeProject?.name}</h1>
+                                    <div className="flex flex-wrap items-center gap-4 md:gap-6 mt-3">
+                                        <div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-teal-500 pulse-led" /><p className="text-[9px] md:text-[10px] font-black text-slate-400 uppercase tracking-widest">Live</p></div>
+                                        <div className="flex items-center gap-2"><Weight className="w-3.5 h-3.5 text-slate-300" /><p className="text-[9px] md:text-[10px] font-black text-slate-400 uppercase tracking-widest">{stats.totalKg.toLocaleString()} KG</p></div>
                                     </div>
                                 </div>
+                                <div className="flex flex-wrap gap-3 w-full lg:w-auto">
+                                    <div className="relative flex-1 lg:flex-none h-12 md:h-14 flex items-center bg-slate-50 border border-slate-200 px-4 md:px-6 rounded-xl group transition-all focus-within:border-teal-400">
+                                        <Filter className="w-4 h-4 text-slate-400 mr-2 md:mr-3" />
+                                        <select 
+                                            className="bg-transparent text-[9px] md:text-[10px] font-black uppercase tracking-widest text-slate-700 outline-none appearance-none pr-6 md:pr-8 w-full" 
+                                            value={phaseFilter} 
+                                            onChange={e => setPhaseFilter(e.target.value)}
+                                        >
+                                            <option value="">Todas las Fases</option>
+                                            {uniquePhases.map(ph => <option key={ph} value={ph}>Fase {ph}</option>)}
+                                        </select>
+                                        <ChevronDown className="w-4 h-4 absolute right-4 md:right-5 text-slate-400 pointer-events-none" />
+                                    </div>
 
-                                {/* Piece Table */}
-                                <div className="bg-white rounded-[2rem] border border-slate-200 shadow-xl shadow-slate-200/20 overflow-hidden flex flex-col min-h-[500px]">
-                                    <div className="overflow-x-auto flex-1 custom-scroll">
-                                        <table className="w-full text-left border-collapse min-w-[1000px]">
-                                            <thead>
-                                                <tr className="bg-slate-50/50 border-b border-slate-100">
-                                                    <th className="px-6 py-5 text-[11px] font-black text-slate-400 uppercase tracking-widest pl-10">Conjunto</th>
-                                                    <th className="px-4 py-5 text-[11px] font-black text-slate-400 uppercase tracking-widest text-center">Nº</th>
-                                                    <th className="px-4 py-5 text-[11px] font-black text-slate-400 uppercase tracking-widest text-right">Peso (kg)</th>
-                                                    <th className="px-4 py-5 text-[11px] font-black text-slate-400 uppercase tracking-widest text-center">Fase</th>
-                                                    {STATES.map(s => <th key={s.key} className="px-2 py-5 text-[11px] font-black text-slate-400 uppercase tracking-widest text-center">{s.short}</th>)}
-                                                    <th className="px-6 py-5 text-[11px] font-black text-slate-400 uppercase tracking-widest text-center pr-10">Acciones</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody className="divide-y divide-slate-50">
-                                                {loadingData ? (
-                                                    <tr><td colSpan={14} className="p-20 text-center"><Loader2 className="w-10 h-10 animate-spin text-[#0E3B43] mx-auto" /></td></tr>
-                                                ) : filteredPieces.length === 0 ? (
-                                                    <tr><td colSpan={14} className="p-20 text-center text-slate-400 italic">No se encontraron piezas</td></tr>
-                                                ) : (
-                                                    filteredPieces.map(p => (
-                                                        <tr key={p.id} className="hover:bg-slate-50 transition-colors group">
-                                                            <td className="px-6 py-4 font-bold text-slate-700 pl-10">{p.conjunto}</td>
-                                                            <td className="px-4 py-4 text-center text-slate-400 font-medium">{p.numero}</td>
-                                                            <td className="px-4 py-4 text-right font-mono font-bold text-slate-600">{p.peso.toFixed(2)}</td>
-                                                            <td className="px-4 py-4 text-center">
-                                                                <span className="px-3 py-1 bg-slate-100 text-slate-500 rounded-lg text-[10px] font-black uppercase tracking-tighter">{p.lote ? `Fase ${p.lote}` : '-'}</span>
-                                                            </td>
-                                                            {STATES.map(s => {
-                                                                const status = p[s.key];
-                                                                const isDone = isStateComplete(status);
-                                                                const allowed = canEditState(s.key);
-                                                                return (
-                                                                    <td key={s.key} className="px-2 py-4">
-                                                                        <button 
-                                                                            disabled={!allowed}
-                                                                            onClick={() => toggleState(p.id, s.key, status)}
-                                                                            className={`w-9 h-9 rounded-xl mx-auto flex items-center justify-center transition-all duration-300 ${isDone ? 'text-white shadow-lg' : 'bg-slate-50 border border-slate-200 text-slate-200 hover:border-slate-300'} ${!allowed ? 'cursor-not-allowed opacity-30' : 'active:scale-90'}`}
-                                                                            style={isDone ? { backgroundColor: s.color, boxShadow: `0 4px 12px ${s.color}40` } : {}}
-                                                                        >
-                                                                            {isDone ? <CheckCircle2 className="w-5 h-5 stroke-[3]" /> : <Box className="w-4 h-4" />}
-                                                                        </button>
-                                                                    </td>
-                                                                );
-                                                            })}
-                                                            <td className="px-6 py-4 pr-10">
-                                                                <div className="flex items-center justify-center gap-2">
-                                                                    <button onClick={() => { setCommentTarget({id: p.id, text: p.comentario}); setModals(m => ({...m, comment: true})); }} className={`p-2 rounded-lg transition-all ${p.comentario ? 'bg-[#0E3B43]/10 text-[#0E3B43]' : 'text-slate-300 hover:bg-slate-100'}`}><MessageSquare className="w-4 h-4" /></button>
-                                                                    <button onClick={() => { setHistoryTarget(p); setModals(m => ({...m, pieceHistory: true})); }} className="p-2 rounded-lg text-slate-300 hover:bg-slate-100"><History className="w-4 h-4" /></button>
-                                                                </div>
-                                                            </td>
-                                                        </tr>
-                                                    ))
-                                                )}
-                                            </tbody>
-                                        </table>
+                                    <div className="bg-slate-800 text-white px-5 md:px-8 py-3 md:py-4 rounded-xl md:rounded-2xl shadow-xl flex flex-col items-center justify-center min-w-[100px] md:min-w-[140px] flex-none">
+                                        <span className="text-[7px] md:text-[9px] font-black text-teal-400 uppercase tracking-widest mb-0.5 md:mb-1">Certificado</span>
+                                        <span className="text-lg md:text-2xl font-black">{stats.totalKg > 0 ? ((stats.statesKg['montado'] / stats.totalKg) * 100).toFixed(1) : 0}%</span>
                                     </div>
                                 </div>
                             </div>
-                        )}
 
-                        {activeView === 'charts' && (
-                            <div className="space-y-8 pb-10">
-                                {/* Dashboard Header Controls */}
-                                <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-6">
-                                    <div>
-                                        <h2 className="text-3xl font-black text-slate-800 tracking-tight">Análisis Operativo</h2>
-                                        <p className="text-slate-400 font-medium mt-1">Seleccione las fases para visualizar métricas avanzadas.</p>
+                            {activeView === 'pieces' ? (
+                                <div className="space-y-6 md:space-y-8 pb-20">
+                                    <div className="bg-white p-4 md:p-6 rounded-[1.5rem] md:rounded-[2rem] border border-slate-200 shadow-sm flex flex-col lg:flex-row items-center justify-between gap-4 md:gap-6">
+                                        <div className="flex-1 flex items-center gap-4 w-full">
+                                            <div className="relative flex-1 group">
+                                                <Search className="w-5 h-5 absolute left-4 md:left-5 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-slate-900 transition-colors" />
+                                                <input 
+                                                    placeholder="CONJUNTO..." 
+                                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-12 md:pl-14 pr-4 md:pr-6 py-3 md:py-4 text-[10px] md:text-xs font-black uppercase tracking-widest text-slate-800 outline-none focus:bg-white focus:border-slate-400 transition-all"
+                                                    value={searchTerm}
+                                                    onChange={e => setSearchTerm(e.target.value)}
+                                                />
+                                            </div>
+                                        </div>
+                                        <div className="flex gap-2 w-full lg:w-auto justify-end">
+                                            {isOT && (
+                                                <>
+                                                    <Button onClick={() => fileRef.current?.click()} loading={processing} variant="secondary">
+                                                        <Upload className="w-4 h-4" /> <span className="hidden md:inline">Importar</span>
+                                                    </Button>
+                                                    <input type="file" ref={fileRef} className="hidden" accept=".xlsx,.xls" onChange={handleFileUpload} />
+                                                </>
+                                            )}
+                                            <div className="flex bg-white border border-slate-200 rounded-xl p-0.5">
+                                                <button onClick={handleExportExcel} className="p-2 md:p-3 text-slate-400 hover:text-slate-900 transition-colors" title="Excel"><FileSpreadsheet className="w-5 h-5" /></button>
+                                                <button onClick={handleExportPiecesPDF} className="p-2 md:p-3 text-slate-400 hover:text-slate-900 transition-colors" title="PDF"><FileText className="w-5 h-5" /></button>
+                                                <button onClick={() => setModals(m => ({...m, logs: true}))} className="p-2 md:p-3 text-slate-400 hover:text-slate-900 transition-colors" title="Logs"><History className="w-5 h-5" /></button>
+                                            </div>
+                                        </div>
                                     </div>
-                                    <div className="flex flex-wrap gap-2 max-w-2xl justify-end">
-                                        {uniquePhases.length === 0 ? <p className="text-slate-400 italic">No hay fases cargadas</p> : 
-                                        uniquePhases.map(ph => (
-                                            <button 
-                                                key={ph} 
-                                                onClick={() => {
-                                                    if(selectedPhases.includes(ph)) setSelectedPhases(prev => prev.filter(x => x !== ph));
-                                                    else setSelectedPhases(prev => [...prev, ph]);
-                                                }}
-                                                className={`px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${selectedPhases.includes(ph) ? 'bg-[#0E3B43] text-white shadow-lg shadow-[#0E3B43]/20' : 'bg-white border border-slate-200 text-slate-400 hover:border-slate-300 hover:text-slate-600'}`}
-                                            >
-                                                Fase {ph}
-                                            </button>
+
+                                    {/* List / Table View */}
+                                    <div className="space-y-4">
+                                        {/* Header visible solo en desktop */}
+                                        <div className="hidden lg:flex items-center px-10 py-4 text-[9px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
+                                            <div className="w-10 text-center mr-8">#</div>
+                                            <div className="flex-1">Conjunto / Pieza</div>
+                                            <div className="w-28 text-right pr-10">Masa (kg)</div>
+                                            <div className="w-32 text-center">Fase</div>
+                                            <div className="flex-1 flex justify-center gap-6">Procesos Estructurales</div>
+                                            <div className="w-24 text-center">Acciones</div>
+                                        </div>
+
+                                        <div className="grid grid-cols-1 gap-3">
+                                            {filteredPieces.length === 0 ? (
+                                                <div className="text-center py-20 bg-white rounded-2xl border border-slate-100 text-slate-400 font-bold italic">No se encontraron piezas</div>
+                                            ) : filteredPieces.map(p => (
+                                                <div key={p.id} className={`bg-white rounded-[1.5rem] md:rounded-2xl p-4 md:px-10 md:py-3.5 flex flex-col lg:flex-row lg:items-center transition-all border border-slate-200 row-card-hover ${selectedPieces.has(p.id) ? 'ring-2 ring-teal-500' : ''}`}>
+                                                    <div className="flex items-center justify-between mb-4 lg:mb-0">
+                                                        <div className="flex items-center gap-4">
+                                                            <button onClick={() => {
+                                                                const n = new Set(selectedPieces);
+                                                                if (n.has(p.id)) n.delete(p.id); else n.add(p.id);
+                                                                setSelectedPieces(n);
+                                                            }} className={selectedPieces.has(p.id) ? 'text-teal-600' : 'text-slate-200 hover:text-slate-400'}>
+                                                                {selectedPieces.has(p.id) ? <CheckSquare className="w-6 h-6" /> : <Square className="w-6 h-6" />}
+                                                            </button>
+                                                            <div className="lg:w-10 hidden lg:block" /> {/* Espaciado para Desktop */}
+                                                            <div>
+                                                                <p className="font-bold text-slate-700 text-sm md:text-base leading-tight">{p.conjunto}</p>
+                                                                <p className="lg:hidden text-[10px] font-black text-slate-400 uppercase mt-1">Masa: {(p.peso||0).toFixed(2)} kg</p>
+                                                            </div>
+                                                        </div>
+                                                        <div className="lg:hidden">
+                                                            <span className="text-[9px] font-black bg-teal-50 text-teal-700 border border-teal-100 px-3 py-1 rounded-lg uppercase">F {p.lote || '-'}</span>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="hidden lg:block flex-1" /> {/* Spacer Desktop */}
+                                                    
+                                                    <div className="hidden lg:block w-28 text-right pr-10 font-mono text-xs">{(p.peso||0).toFixed(2)}</div>
+                                                    <div className="hidden lg:block w-32 text-center"><span className="text-[10px] font-black bg-teal-50 text-teal-700 border border-teal-100 px-3 py-1 rounded-lg uppercase">{p.lote || '---'}</span></div>
+                                                    
+                                                    {/* Status indicators: Scroll horizontal en móvil */}
+                                                    <div className="flex-1 flex items-center justify-between lg:justify-center gap-3 md:gap-4 overflow-x-auto pb-6 pt-2 lg:pb-0 lg:pt-0 no-scrollbar">
+                                                        {STATES.map(s => <StatusBadge key={s.key} state={s} p={p} onToggle={handleToggleState} allowed={canEditState(s.key)} />)}
+                                                    </div>
+
+                                                    <div className="flex justify-between items-center mt-4 pt-4 border-t border-slate-50 lg:mt-0 lg:pt-0 lg:border-t-0 lg:w-24 lg:justify-center lg:gap-2">
+                                                        <div className="flex gap-2">
+                                                            <button onClick={() => { setCommentTarget({id: p.id, text: p.comentario}); setModals(m => ({...m, comment: true})); }} className={`p-2 rounded-xl transition-all ${p.comentario ? 'text-teal-600 bg-teal-50' : 'text-slate-300 hover:text-slate-600 hover:bg-slate-50'}`} title="Notas"><MessageSquare className="w-5 h-5" /></button>
+                                                            <button onClick={() => { setHistoryTargetId(p.id); setModals(m => ({...m, pieceHistory: true})); }} className="p-2 text-slate-300 hover:text-slate-600 hover:bg-slate-50 rounded-xl transition-all" title="Historia"><History className="w-5 h-5" /></button>
+                                                        </div>
+                                                        <span className="lg:hidden text-[8px] font-bold text-slate-300 uppercase tracking-tighter">ID: {p.id.slice(0,6)}</span>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+                            ) : (
+                                /* Monitor View Responsivo */
+                                <div className="space-y-6 md:space-y-10 animate-in fade-in slide-in-from-bottom-5 duration-500 pb-20">
+                                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 md:gap-8">
+                                        {/* Visualizer Card */}
+                                        <div className="lg:col-span-8 bg-white rounded-[1.5rem] md:rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden flex flex-col min-h-[350px] md:min-h-[500px]">
+                                            <div className="p-5 md:p-8 border-b border-slate-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white">
+                                                <div>
+                                                    <h3 className="text-lg md:text-xl font-black text-slate-900 tracking-tight uppercase">Modelo BIM</h3>
+                                                    <p className="text-[9px] md:text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Sincronización gráfica</p>
+                                                </div>
+                                                <div className="flex gap-2 w-full md:w-auto">
+                                                    <Button onClick={handleExportMonitorPDF} variant="secondary" className="flex-1 md:flex-none h-10 text-[9px] md:text-[10px] px-3 md:px-5" loading={processing}><FileText className="w-4 h-4" /> PDF</Button>
+                                                    {isOT && (
+                                                        <button onClick={() => { setEditTargetProject(activeProject!); setModals(m => ({...m, editProject: true})); }} className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-500 hover:text-slate-900 transition-all"><Edit3 className="w-5 h-5" /></button>
+                                                    )}
+                                                    {activeProject?.externalLink && (
+                                                        <a href={activeProject.externalLink} target="_blank" rel="noopener noreferrer" className="flex-1 md:flex-none">
+                                                            <Button className="w-full h-10 text-[9px] md:text-[10px] px-3 md:px-5"><ExternalLink className="w-4 h-4" /> Enlace</Button>
+                                                        </a>
+                                                    )}
+                                                </div>
+                                            </div>
+                                            <div className="flex-1 bg-slate-50 relative flex items-center justify-center min-h-[250px]">
+                                                {activeProject?.imageUrl ? (
+                                                    <img src={activeProject.imageUrl} className="w-full h-full object-contain" alt="Proyecto" />
+                                                ) : (
+                                                    <div className="flex flex-col items-center opacity-20">
+                                                        <ImageIcon className="w-12 h-12 md:w-20 md:h-20 mb-4" />
+                                                        <p className="font-black uppercase tracking-widest text-[9px] md:text-xs text-center">Sin Multimedia</p>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        {/* Phases Panel Móvil */}
+                                        <div className="lg:col-span-4 flex flex-col gap-6">
+                                            <div className="bg-slate-800 rounded-[1.5rem] md:rounded-[2.5rem] p-6 md:p-10 text-white shadow-xl flex-1 flex flex-col">
+                                                <div className="flex justify-between items-center mb-6">
+                                                    <h4 className="text-[9px] md:text-[10px] font-black text-teal-400 uppercase tracking-widest">Avance por Fase</h4>
+                                                </div>
+                                                <div className="space-y-4 max-h-[300px] overflow-y-auto custom-scroll pr-2 md:pr-4">
+                                                    {(phaseFilter ? uniquePhases.filter(ph => ph === phaseFilter) : uniquePhases).map(ph => {
+                                                        const phPieces = pieces.filter(p => (p.lote||"").toString() === ph && !p.eliminada);
+                                                        const montado = phPieces.filter(p => isStateComplete(p.montado)).length;
+                                                        const progress = phPieces.length > 0 ? (montado / phPieces.length) * 100 : 0;
+                                                        return (
+                                                            <div key={ph} className="p-4 md:p-5 bg-white/5 rounded-2xl border border-white/5">
+                                                                <div className="flex justify-between items-center mb-2">
+                                                                    <span className="text-xs md:text-sm font-black uppercase">Fase {ph}</span>
+                                                                    <span className="text-teal-400 font-bold text-xs">{progress.toFixed(0)}%</span>
+                                                                </div>
+                                                                <div className="h-1.5 w-full bg-white/10 rounded-full overflow-hidden">
+                                                                    <div className="h-full bg-teal-500 rounded-full" style={{ width: `${progress}%` }} />
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Stats Grid Responsivo */}
+                                    <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+                                        {[
+                                            { label: "En Tránsito", val: stats.despachadoSinMontar, icon: Truck, color: "amber" },
+                                            { label: "Listo Desp.", val: stats.listoParaDespacho, icon: Warehouse, color: "emerald" },
+                                            { label: "En Proceso", val: stats.enFabricacion, icon: Boxes, color: "blue" },
+                                            { label: "Montado", val: stats.completado, icon: Ship, color: "teal" }
+                                        ].map(card => (
+                                            <div key={card.label} className="bg-white p-5 md:p-8 rounded-[1.5rem] md:rounded-[2rem] border border-slate-200 shadow-sm flex flex-col items-center text-center">
+                                                <div className={`p-3 md:p-4 w-10 h-10 md:w-14 md:h-14 rounded-xl md:rounded-2xl mb-3 md:mb-6 flex items-center justify-center bg-${card.color}-50 text-${card.color}-600`}>
+                                                    <card.icon className="w-5 h-5 md:w-6 md:h-6" />
+                                                </div>
+                                                <p className="text-xl md:text-4xl font-black text-slate-900 tracking-tighter">{card.val}</p>
+                                                <p className="text-[8px] md:text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1 md:mt-2">{card.label}</p>
+                                            </div>
                                         ))}
                                     </div>
-                                </div>
 
-                                {/* Main Stats Grid */}
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                                    <div className="bg-[#0E3B43] rounded-[2.5rem] p-8 text-white shadow-2xl shadow-[#0E3B43]/20 flex flex-col justify-between relative overflow-hidden group">
-                                        <div className="absolute -right-10 -bottom-10 w-40 h-40 bg-white/5 rounded-full blur-3xl group-hover:scale-150 transition-transform duration-700"></div>
-                                        <div>
-                                            <p className="text-[10px] font-black uppercase tracking-[2px] opacity-60">Avance General</p>
-                                            <h3 className="text-4xl font-black mt-2">{dashboardData.progress.toFixed(1)}%</h3>
-                                        </div>
-                                        <div className="mt-8">
-                                            <div className="h-2 w-full bg-white/10 rounded-full overflow-hidden">
-                                                <div className="h-full bg-white rounded-full transition-all duration-1000" style={{width: `${dashboardData.progress}%`}}></div>
-                                            </div>
-                                            <p className="text-[10px] font-bold mt-3 opacity-60">{dashboardData.piecesCompleted} de {dashboardData.totalPieces} piezas montadas</p>
-                                        </div>
-                                    </div>
-
-                                    <div className="bg-white rounded-[2.5rem] p-8 border border-slate-200 shadow-sm flex flex-col justify-between hover:border-[#0E3B43]/20 transition-all">
-                                        <div>
-                                            <div className="flex items-center gap-2 text-[#0E3B43] mb-2">
-                                                <Timer className="w-4 h-4" />
-                                                <p className="text-[10px] font-black uppercase tracking-[2px]">Carga Pendiente</p>
-                                            </div>
-                                            <h3 className="text-3xl font-black text-slate-800">{dashboardData.remainingKg.toLocaleString()} <span className="text-lg text-slate-400">kg</span></h3>
-                                        </div>
-                                        <div className="mt-8 flex items-end justify-between">
-                                            <div className="flex -space-x-2">
-                                                <div className="w-8 h-8 rounded-full bg-slate-100 border-2 border-white flex items-center justify-center text-[10px] font-black">OT</div>
-                                                <div className="w-8 h-8 rounded-full bg-[#0E3B43]/10 border-2 border-white flex items-center justify-center text-[10px] font-black text-[#0E3B43]">PR</div>
-                                                <div className="w-8 h-8 rounded-full bg-green-50 border-2 border-white flex items-center justify-center text-[10px] font-black text-green-600">OB</div>
-                                            </div>
-                                            <p className="text-[10px] font-bold text-slate-400">Restante del total</p>
-                                        </div>
-                                    </div>
-
-                                    <div className="bg-white rounded-[2.5rem] p-8 border border-slate-200 shadow-sm flex flex-col justify-between hover:border-red-100 transition-all group">
-                                        <div>
-                                            <div className="flex items-center gap-2 text-red-500 mb-2">
-                                                <AlertTriangle className="w-4 h-4" />
-                                                <p className="text-[10px] font-black uppercase tracking-[2px]">Cuello de Botella</p>
-                                            </div>
-                                            <h3 className="text-2xl font-black text-slate-800">{dashboardData.bottleneck.name}</h3>
-                                        </div>
-                                        <div className="mt-8">
-                                            <p className="text-xs font-bold text-slate-500">{dashboardData.bottleneck.kg.toLocaleString()} kg retenidos</p>
-                                            <div className="h-1.5 w-full bg-slate-50 rounded-full mt-2 overflow-hidden">
-                                                <div className="h-full bg-red-400 rounded-full group-hover:w-full transition-all duration-700" style={{width: '40%'}}></div>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <div className="bg-white rounded-[2.5rem] p-8 border border-slate-200 shadow-sm flex flex-col justify-between hover:border-blue-100 transition-all">
-                                        <div>
-                                            <div className="flex items-center gap-2 text-blue-500 mb-2">
-                                                <Target className="w-4 h-4" />
-                                                <p className="text-[10px] font-black uppercase tracking-[2px]">Métrica de Éxito</p>
-                                            </div>
-                                            <h3 className="text-3xl font-black text-slate-800">{Math.round((dashboardData.piecesCompleted / (dashboardData.totalPieces || 1)) * 100)}%</h3>
-                                        </div>
-                                        <div className="mt-8 flex justify-between items-center">
-                                            <p className="text-[10px] font-bold text-slate-400">Montaje Finalizado</p>
-                                            <Zap className="w-4 h-4 text-yellow-400 fill-yellow-400" />
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Chart Section */}
-                                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                                    <div className="lg:col-span-2">
-                                        <Card title="Distribución de Carga por Etapa" subtitle="Peso acumulado en cada instancia del proceso" icon={TrendingUp}>
-                                            <div className="h-[400px]">
+                                    {/* Gráficos con Ref para PDF */}
+                                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 md:gap-10">
+                                        <div ref={chart1Ref} className="bg-white rounded-[1.5rem] md:rounded-[2.5rem] p-6 md:p-12 border border-slate-200 shadow-sm h-[350px] md:h-[500px] flex flex-col">
+                                            <h3 className="text-sm md:text-xl font-black text-slate-900 tracking-tight uppercase mb-6 md:mb-10">Tonelaje por Etapa</h3>
+                                            <div className="flex-1 w-full overflow-hidden">
                                                 <ResponsiveContainer width="100%" height="100%">
-                                                    <BarChart data={dashboardData.bars} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
+                                                    <ComposedChart data={STATES.map(s => ({ name: s.label, kg: stats.statesKg[s.key] || 0, color: s.color }))}>
                                                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                                                        <XAxis 
-                                                            dataKey="short" 
-                                                            axisLine={false} 
-                                                            tickLine={false} 
-                                                            tick={{fill: '#94a3b8', fontSize: 11, fontWeight: 800}} 
-                                                        />
-                                                        <YAxis 
-                                                            axisLine={false} 
-                                                            tickLine={false} 
-                                                            tick={{fill: '#94a3b8', fontSize: 11}} 
-                                                        />
-                                                        <Tooltip 
-                                                            cursor={{fill: '#f8fafc'}}
-                                                            content={<CustomTooltip />}
-                                                        />
-                                                        <Bar dataKey="kg" radius={[12, 12, 0, 0]} barSize={50}>
-                                                            {dashboardData.bars.map((e, i) => (
-                                                                <Cell key={i} fill={e.color} fillOpacity={0.9} />
+                                                        <XAxis dataKey="name" axisLine={false} tickLine={false} style={{ fontSize: '8px' }} interval={0} angle={-45} textAnchor="end" height={50} />
+                                                        <YAxis hide axisLine={false} tickLine={false} />
+                                                        <Bar dataKey="kg" radius={[6, 6, 0, 0]} barSize={20}>
+                                                            {STATES.map((s, index) => (
+                                                                <Cell key={`cell-${index}`} fill={s.color} />
                                                             ))}
-                                                            <LabelList 
-                                                                dataKey="kg" 
-                                                                position="top" 
-                                                                formatter={(v: number) => `${Math.round(v / 1000)}t`}
-                                                                style={{fill: '#94a3b8', fontSize: 10, fontWeight: 900}} 
-                                                            />
+                                                            <LabelList dataKey="kg" position="top" formatter={(v: number) => `${(v/1000).toFixed(1)}t`} style={{ fontSize: '8px', fontWeight: '800' }} />
+                                                        </Bar>
+                                                        <Line type="monotone" dataKey="kg" stroke="#334155" strokeWidth={2} dot={{ r: 4, fill: '#334155' }} />
+                                                    </ComposedChart>
+                                                </ResponsiveContainer>
+                                            </div>
+                                        </div>
+                                        <div ref={chart2Ref} className="bg-white rounded-[1.5rem] md:rounded-[2.5rem] p-6 md:p-12 border border-slate-200 shadow-sm h-[350px] md:h-[500px] flex flex-col">
+                                            <h3 className="text-sm md:text-xl font-black text-slate-900 tracking-tight uppercase mb-6 md:mb-10">Unidades Totales</h3>
+                                            <div className="flex-1 w-full overflow-hidden">
+                                                <ResponsiveContainer width="100%" height="100%">
+                                                    <BarChart data={STATES.map(s => ({ name: s.label, count: stats.statesCount[s.key] || 0 }))} layout="vertical">
+                                                        <XAxis type="number" hide />
+                                                        <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} width={80} style={{ fontSize: '8px' }} />
+                                                        <Bar dataKey="count" radius={[0, 6, 6, 0]} barSize={15}>
+                                                            {STATES.map((s, index) => (
+                                                                <Cell key={`cell-${index}`} fill={s.color} fillOpacity={0.2} stroke={s.color} strokeWidth={2} />
+                                                            ))}
+                                                            <LabelList dataKey="count" position="right" style={{ fontSize: '9px', fontWeight: '800' }} />
                                                         </Bar>
                                                     </BarChart>
                                                 </ResponsiveContainer>
                                             </div>
-                                        </Card>
-                                    </div>
-
-                                    <div className="space-y-6">
-                                        <Card title="Desglose por Fase" subtitle="Eficiencia individual de lotes" icon={Layers}>
-                                            <div className="space-y-4 max-h-[340px] overflow-y-auto custom-scroll pr-2">
-                                                {selectedPhases.map(ph => {
-                                                    const phasePieces = activePieces.filter(p => Number(p.lote) === ph);
-                                                    const phKg = phasePieces.reduce((s, p) => s + p.peso, 0);
-                                                    const phComp = phasePieces.filter(p => isStateComplete(p[STATES[STATES.length-1].key])).length;
-                                                    const phPerc = (phComp / (phasePieces.length || 1)) * 100;
-                                                    
-                                                    return (
-                                                        <div key={ph} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 group hover:bg-white hover:shadow-md transition-all">
-                                                            <div className="flex justify-between items-start mb-3">
-                                                                <span className="text-xs font-black text-slate-800">Fase {ph}</span>
-                                                                <span className="text-[10px] font-black text-[#0E3B43]">{Math.round(phKg)} kg</span>
-                                                            </div>
-                                                            <div className="h-1.5 w-full bg-slate-200 rounded-full overflow-hidden">
-                                                                <div className="h-full bg-[#0E3B43] rounded-full transition-all duration-1000" style={{width: `${phPerc}%`}}></div>
-                                                            </div>
-                                                            <div className="flex justify-between mt-2">
-                                                                <span className="text-[9px] font-bold text-slate-400 uppercase">{phComp} de {phasePieces.length} piezas</span>
-                                                                <span className="text-[9px] font-bold text-[#0E3B43]">{phPerc.toFixed(1)}%</span>
-                                                            </div>
-                                                        </div>
-                                                    );
-                                                })}
-                                                {selectedPhases.length === 0 && (
-                                                    <div className="py-10 text-center">
-                                                        <HelpCircle className="w-8 h-8 text-slate-200 mx-auto mb-2" />
-                                                        <p className="text-xs font-bold text-slate-300 uppercase tracking-widest">Sin fases seleccionadas</p>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </Card>
-
-                                        <div className="p-8 bg-white rounded-[2.5rem] border border-slate-200 shadow-sm relative group overflow-hidden">
-                                            <div className="flex items-center gap-4">
-                                                <div className="p-4 bg-green-50 rounded-[1.5rem] text-green-600">
-                                                    <Box className="w-6 h-6" />
-                                                </div>
-                                                <div>
-                                                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Total Producción</p>
-                                                    <h4 className="text-2xl font-black text-slate-800">{dashboardData.totalPieces} Unidades</h4>
-                                                </div>
-                                            </div>
-                                            <div className="mt-6 pt-6 border-t border-slate-50 flex justify-between">
-                                                <div>
-                                                    <p className="text-[9px] font-black text-slate-400 uppercase">En proceso</p>
-                                                    <p className="text-lg font-black text-[#0E3B43]">{dashboardData.totalPieces - dashboardData.piecesCompleted}</p>
-                                                </div>
-                                                <div className="text-right">
-                                                    <p className="text-[9px] font-black text-slate-400 uppercase">Finalizadas</p>
-                                                    <p className="text-lg font-black text-green-600">{dashboardData.piecesCompleted}</p>
-                                                </div>
-                                            </div>
                                         </div>
                                     </div>
                                 </div>
-                            </div>
-                        )}
-                    </div>
-                )}
+                            )}
+                        </div>
+                    )}
+                </div>
             </main>
 
-            {/* Modals */}
-            <Modal isOpen={modals.manageProjects} onClose={() => setModals(m => ({...m, manageProjects: false}))} title="Gestión de Obras">
+            {/* View Switcher FAB Responsivo */}
+            <button 
+                onClick={() => setActiveView(activeView === 'pieces' ? 'charts' : 'pieces')} 
+                className="fixed bottom-6 right-6 w-14 h-14 md:w-16 md:h-16 bg-slate-700 text-white rounded-2xl md:rounded-[1.8rem] shadow-2xl flex items-center justify-center hover:scale-110 active:scale-90 transition-all z-[80] border-4 border-white"
+            >
+                {activeView === 'pieces' ? <Activity className="w-6 h-6 md:w-7 md:h-7" /> : <Boxes className="w-6 h-6 md:w-7 md:h-7" />}
+            </button>
+
+            {/* Selection FAB Móvil */}
+            {selectedPieces.size > 0 && (
+                <div className="fixed bottom-24 left-4 right-4 md:bottom-10 md:left-1/2 md:-translate-x-1/2 md:right-auto z-[80] animate-in slide-in-from-bottom-10">
+                    <div className="bg-slate-700 text-white px-6 md:px-10 py-4 md:py-5 rounded-2xl md:rounded-[2.5rem] shadow-2xl flex items-center justify-between md:gap-10 border border-white/10 backdrop-blur-md">
+                        <div className="flex flex-col md:flex-row md:items-center md:gap-2">
+                            <span className="font-black text-lg md:text-xl leading-none">{selectedPieces.size}</span>
+                            <span className="text-[7px] md:text-[10px] opacity-40 uppercase tracking-widest font-bold">Piezas</span>
+                        </div>
+                        <div className="hidden md:block w-px h-10 bg-white/10" />
+                        <div className="flex gap-2">
+                            <button onClick={() => setModals(m => ({...m, massPhase: true}))} className="px-4 md:px-8 py-2 md:py-3 bg-white text-slate-800 rounded-lg md:rounded-xl text-[8px] md:text-[10px] font-black uppercase shadow-xl hover:scale-105 active:scale-95 transition-all">Fase</button>
+                            <button onClick={() => setSelectedPieces(new Set())} className="px-4 md:px-8 py-2 md:py-3 bg-white/10 hover:bg-white/20 rounded-lg md:rounded-xl text-[8px] md:text-[10px] font-black uppercase transition-all">Limpiar</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL: PERFIL */}
+            <Modal isOpen={modals.profile} onClose={() => setModals(m => ({ ...m, profile: false }))} title="Perfil Usuario">
+                <form onSubmit={handleUpdateProfile} className="space-y-6">
+                    <div className="flex flex-col items-center mb-6">
+                        <div 
+                            onClick={() => avatarRef.current?.click()}
+                            className="relative w-24 h-24 rounded-[1.5rem] bg-slate-100 border-2 border-dashed border-slate-300 flex items-center justify-center cursor-pointer hover:border-teal-400 group overflow-hidden transition-all"
+                        >
+                            {profileEditData.avatarUrl ? (
+                                <img src={profileEditData.avatarUrl} className="w-full h-full object-cover" alt="Avatar" />
+                            ) : (
+                                <UserCircle className="w-10 h-10 text-slate-300 group-hover:text-teal-400" />
+                            )}
+                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                                <Camera className="text-white w-5 h-5" />
+                            </div>
+                            <input type="file" ref={avatarRef} className="hidden" accept="image/*" onChange={handleAvatarUpload} />
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                            <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Nombre</label>
+                            <input 
+                                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-5 py-3 text-xs font-bold text-slate-800 outline-none"
+                                value={profileEditData.nombre || ''}
+                                onChange={e => setProfileEditData(prev => ({ ...prev, nombre: e.target.value }))}
+                                required
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Apellido</label>
+                            <input 
+                                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-5 py-3 text-xs font-bold text-slate-800 outline-none"
+                                value={profileEditData.apellido || ''}
+                                onChange={e => setProfileEditData(prev => ({ ...prev, apellido: e.target.value }))}
+                                required
+                            />
+                        </div>
+                    </div>
+
+                    <div className="p-6 bg-slate-800 rounded-2xl space-y-4">
+                        <label className="text-[9px] font-black text-teal-400 uppercase tracking-widest block">Área de Desempeño</label>
+                        <select 
+                            className="w-full bg-slate-700 border border-white/10 rounded-xl px-5 py-3 text-xs font-black text-white uppercase outline-none"
+                            value={profileEditData.area || ''}
+                            onChange={e => setProfileEditData(prev => ({ ...prev, area: e.target.value }))}
+                            required
+                        >
+                            <option value="" disabled>Seleccionar Área...</option>
+                            {AREAS.map(area => <option key={area} value={area}>{area}</option>)}
+                        </select>
+                    </div>
+
+                    <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
+                        <Button variant="ghost" onClick={() => setModals(m => ({ ...m, profile: false }))}>Cancelar</Button>
+                        <Button type="submit" loading={processing} className="flex-1 md:flex-none">Guardar</Button>
+                    </div>
+                </form>
+            </Modal>
+
+            {/* MODALS: COMENTARIOS, FASE, HISTORIAL (Optimizado tamaño táctil) */}
+            <Modal isOpen={modals.comment} onClose={() => { setModals(m => ({...m, comment: false})); setCommentTarget(null); }} title="Observaciones">
                 <div className="space-y-6">
+                    <textarea 
+                        className="w-full min-h-[120px] bg-slate-50 border border-slate-200 rounded-xl p-4 text-xs font-bold text-slate-800 outline-none focus:border-teal-500"
+                        placeholder="Nota interna..."
+                        value={commentTarget?.text || ''}
+                        onChange={e => setCommentTarget(prev => prev ? {...prev, text: e.target.value} : null)}
+                    />
+                    <Button onClick={handleSaveComment} loading={processing} className="w-full">Guardar Nota</Button>
+                </div>
+            </Modal>
+
+            <Modal isOpen={modals.massPhase} onClose={() => setModals(m => ({...m, massPhase: false}))} title="Cambio de Fase">
+                <div className="space-y-6">
+                    <input 
+                        placeholder="Nueva Fase..." 
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-5 py-3 text-sm font-black text-slate-800 outline-none"
+                        id="massPhaseInput"
+                    />
+                    <Button onClick={() => {
+                        const val = (document.getElementById('massPhaseInput') as HTMLInputElement).value;
+                        handleMassPhase(val);
+                    }} loading={processing} className="w-full">Confirmar</Button>
+                </div>
+            </Modal>
+
+            <Modal isOpen={modals.pieceHistory} onClose={() => { setModals(m => ({...m, pieceHistory: false})); setHistoryTargetId(null); }} title={`Bitácora: ${historyTarget?.conjunto || ''}`}>
+                <div className="space-y-4">
+                    {!historyTarget ? (
+                        <p className="text-center py-10 font-bold opacity-30">Sin datos</p>
+                    ) : (
+                        STATES.map(s => {
+                            const audit = historyTarget[s.key] as AuditStatus;
+                            const done = isStateComplete(audit);
+                            return (
+                                <div key={s.key} className={`p-4 rounded-xl border flex items-center justify-between transition-all ${done ? 'bg-white border-slate-200 shadow-sm' : 'bg-slate-50 border-slate-100 opacity-40'}`}>
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-8 h-8 rounded-lg flex items-center justify-center text-white" style={{ backgroundColor: done ? s.color : '#cbd5e1' }}>
+                                            {done ? <CheckCircle2 className="w-4 h-4" /> : <Clock className="w-4 h-4" />}
+                                        </div>
+                                        <p className="text-[10px] font-black text-slate-800 uppercase">{s.label}</p>
+                                    </div>
+                                    {done && (
+                                        <div className="text-right">
+                                            <p className="text-[8px] font-black text-slate-400 uppercase">{audit.usuarioNombre || 'Sistema'}</p>
+                                            <p className="text-[7px] font-bold text-slate-300">{formatTime(audit.fecha)}</p>
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })
+                    )}
+                </div>
+            </Modal>
+
+            {/* GESTIÓN DE OBRAS RESPONSIVO */}
+            <Modal isOpen={modals.projects} onClose={() => setModals(m => ({...m, projects: false}))} title="Obras Solana" size="lg">
+                <div className="space-y-8">
                     {isOT && (
-                        <form onSubmit={handleCreateProject} className="flex gap-2">
-                            <input name="pname" placeholder="Nombre de nueva obra..." className="input-modern flex-1" required />
-                            <Button type="submit"><Plus className="w-5 h-5" /></Button>
+                        <form onSubmit={(e) => {
+                            e.preventDefault();
+                            const name = (e.target as any).pname.value;
+                            if (!name) return;
+                            setProcessing(true);
+                            addDoc(collection(db, `artifacts/${appId}/public/data/projects`), { name: name.toUpperCase(), createdAt: serverTimestamp(), archived: false })
+                                .then(() => { (e.target as any).reset(); setProcessing(false); })
+                                .catch(() => setProcessing(false));
+                        }} className="flex flex-col md:flex-row gap-3">
+                            <input name="pname" placeholder="NOMBRE DE LA OBRA..." className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-5 py-3 text-xs font-bold uppercase outline-none" required />
+                            <Button type="submit" loading={processing} className="w-full md:w-auto px-10">Crear Obra</Button>
                         </form>
                     )}
-                    <div className="space-y-2 max-h-[40vh] overflow-y-auto custom-scroll pr-1">
+                    <div className="space-y-3 max-h-[50vh] overflow-y-auto custom-scroll pr-2">
                         {projects.map(p => (
-                            <div key={p.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100 group transition-all hover:bg-white hover:border-[#0E3B43]/20">
-                                <div className="flex items-center gap-3">
-                                    <Building className="w-5 h-5 text-slate-300 group-hover:text-[#0E3B43] transition-colors" />
-                                    <span className="font-bold text-slate-700">{p.name}</span>
+                            <div key={p.id} className={`flex items-center justify-between p-4 md:p-6 rounded-2xl border transition-all ${p.archived ? 'bg-slate-50 opacity-40 border-slate-100' : 'bg-white border-slate-200 hover:shadow-lg'}`}>
+                                <div className="flex items-center gap-4 truncate">
+                                    <Building className="w-5 h-5 text-slate-300 flex-none" />
+                                    <div className="truncate">
+                                        <h4 className="font-black text-slate-900 tracking-tight text-sm uppercase truncate">{p.name}</h4>
+                                        <p className="text-[8px] font-bold text-slate-400 uppercase mt-1">ID: {p.id.slice(0,8)}</p>
+                                    </div>
                                 </div>
-                                {isOT && (
-                                    <button onClick={() => { if(confirm("¿Desea eliminar esta obra permanentemente?")) deleteDoc(doc(db, `artifacts/${appId}/public/data/projects`, p.id)); }} className="p-2 text-slate-300 hover:text-red-500 transition-colors"><Trash2 className="w-4 h-4" /></button>
-                                )}
+                                <div className="flex gap-2">
+                                    {!p.archived && <button onClick={() => { setActiveProjectId(p.id); setModals(m => ({...m, projects: false})); }} className="px-4 py-2 bg-teal-50 text-teal-700 rounded-lg text-[9px] font-black uppercase border border-teal-100 active:scale-95 transition-all">Abrir</button>}
+                                    {isOT && (
+                                        <button onClick={() => confirm("Eliminar?") && deleteDoc(doc(db, `artifacts/${appId}/public/data/projects`, p.id))} className="p-2 text-slate-200 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
+                                    )}
+                                </div>
                             </div>
                         ))}
                     </div>
                 </div>
             </Modal>
 
-            <Modal isOpen={modals.comment} onClose={() => setModals(m => ({...m, comment: false}))} title="Notas de Pieza">
-                <textarea 
-                    className="input-modern w-full h-40 py-4 resize-none mb-6 font-medium text-slate-600 leading-relaxed" 
-                    placeholder="Ingrese observaciones técnicas..."
-                    value={commentTarget?.text || ''}
-                    onChange={e => setCommentTarget(prev => prev ? {...prev, text: e.target.value} : null)}
-                />
-                <div className="flex justify-end gap-3">
-                    <Button variant="secondary" onClick={() => setModals(m => ({...m, comment: false}))}>Descartar</Button>
-                    <Button onClick={async () => {
-                        if(commentTarget) {
-                            await updateDoc(doc(db, `artifacts/${appId}/public/data/projects/${activeProjectId}/pieces`, commentTarget.id), { comentario: commentTarget.text });
-                            setModals(m => ({...m, comment: false}));
-                        }
-                    }}>Guardar</Button>
-                </div>
-            </Modal>
-
-            <Modal isOpen={modals.linkModel} onClose={() => setModals(m => ({...m, linkModel: false}))} title="Vincular Visor Web">
-                <div className="space-y-6">
-                    <div className="bg-[#0E3B43]/5 p-4 rounded-2xl border border-[#0E3B43]/10 flex gap-4 items-start">
-                        <Monitor className="w-6 h-6 text-[#0E3B43] shrink-0 mt-1" />
-                        <div>
-                            <p className="text-sm font-bold text-slate-700">Visor de Modelos</p>
-                            <p className="text-xs text-slate-500 leading-relaxed">Pega el link de visualización (ej: Autodesk Viewer, Sketchfab o BIM 360) para mostrar el modelo 3D de esta obra.</p>
-                        </div>
-                    </div>
-                    <input 
-                        type="url" 
-                        placeholder="https://..." 
-                        className="input-modern" 
-                        value={linkInput} 
-                        onChange={e => setLinkInput(e.target.value)} 
-                    />
-                    <div className="flex justify-end gap-3 pt-4">
-                        <Button variant="secondary" onClick={() => setModals(m => ({...m, linkModel: false}))}>Cancelar</Button>
-                        <Button onClick={async () => {
-                            if(!linkInput) return alert("Por favor ingresa una URL válida");
-                            await setDoc(doc(db, `artifacts/${appId}/public/data/projects/${activeProjectId}/config/model`), { linkUrl: linkInput, updatedAt: new Date() });
-                            setModals(m => ({...m, linkModel: false}));
-                            setLinkInput('');
-                        }}>Vincular Modelo</Button>
-                    </div>
-                </div>
-            </Modal>
-
-            <Modal isOpen={modals.profile} onClose={() => setModals(m => ({...m, profile: false}))} title="Configuración de Perfil">
-                <form className="space-y-4" onSubmit={async (e) => {
-                    e.preventDefault();
-                    if(userProfile?.id) {
-                        await updateDoc(doc(db, `artifacts/${appId}/public/data/users`, userProfile.id), editProfileData);
-                        setModals(m => ({...m, profile: false}));
-                    }
-                }}>
-                    <div className="grid grid-cols-2 gap-3">
-                        <input className="input-modern" placeholder="Nombre" value={editProfileData.nombre} onChange={e => setEditProfileData({...editProfileData, nombre: e.target.value})} />
-                        <input className="input-modern" placeholder="Apellido" value={editProfileData.apellido} onChange={e => setEditProfileData({...editProfileData, apellido: e.target.value})} />
-                    </div>
-                    <input className="input-modern" placeholder="Cargo" value={editProfileData.puesto} onChange={e => setEditProfileData({...editProfileData, puesto: e.target.value})} />
-                    <select className="input-modern" value={editProfileData.area} onChange={e => setEditProfileData({...editProfileData, area: e.target.value})}>
-                        {AREAS.map(a => <option key={a} value={a}>{a}</option>)}
-                    </select>
-                    <div className="pt-6 flex justify-end gap-3">
-                        <Button variant="secondary" onClick={() => setModals(m => ({...m, profile: false}))}>Cerrar</Button>
-                        <Button type="submit">Actualizar</Button>
-                    </div>
-                </form>
-            </Modal>
-
-            {/* Image Expanded View */}
-            {isImageExpanded && projectImage && (
-                <div className="fixed inset-0 z-[200] bg-slate-950/95 backdrop-blur-xl flex items-center justify-center p-4 animate-in fade-in duration-300" onClick={() => setIsImageExpanded(false)}>
-                    <button className="absolute top-10 right-10 text-white/50 hover:text-white transition-colors bg-white/10 p-2 rounded-full"><X className="w-8 h-8" /></button>
-                    <img src={projectImage} className="max-w-full max-h-full object-contain rounded-2xl shadow-2xl animate-in zoom-in-95" onClick={e => e.stopPropagation()} />
-                </div>
-            )}
-
             <style>{`
-                .input-modern {
-                    @apply w-full bg-slate-50 border border-slate-200 rounded-2xl px-5 py-3.5 text-sm font-semibold text-slate-700 
-                    outline-none transition-all focus:bg-white focus:ring-4 focus:ring-[#0E3B43]/5 focus:border-[#0E3B43] placeholder:text-slate-300;
-                }
-                .nav-item {
-                    @apply flex items-center gap-3 px-5 py-3.5 rounded-xl text-[11px] font-extrabold uppercase tracking-[0.1em] text-slate-500 transition-all duration-200 active:scale-95 text-left w-full;
-                }
-                .nav-item:hover { @apply bg-slate-50 text-slate-700; }
-                .nav-item.active { @apply bg-[#0E3B43] text-white shadow-xl shadow-[#0E3B43]/20; }
-                
-                .action-btn {
-                    @apply flex items-center justify-center p-3 rounded-xl bg-slate-50 text-slate-400 border border-slate-100 transition-all hover:bg-[#0E3B43]/5 hover:text-[#0E3B43] hover:border-[#0E3B43]/20 active:scale-90;
-                }
-
-                .mode-toggle {
-                    @apply flex items-center gap-2 px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest text-slate-400 transition-all;
-                }
-                .mode-toggle.active { @apply bg-white text-[#0E3B43] shadow-md ring-1 ring-black/5; }
-
                 .custom-scroll::-webkit-scrollbar { width: 4px; }
-                .custom-scroll::-webkit-scrollbar-thumb { @apply bg-slate-200 rounded-full hover:bg-slate-300; }
+                .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+                .no-scrollbar::-webkit-scrollbar { display: none; }
+                .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+                @keyframes pulse-soft { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.05); opacity: 0.8; } }
+                .pulse-led { animation: pulse-soft 2s infinite ease-in-out; }
             `}</style>
         </div>
     );
