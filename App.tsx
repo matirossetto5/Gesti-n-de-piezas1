@@ -426,12 +426,14 @@ export default function App() {
                     </div>
                 </div>
 
-                <nav className="flex-1 px-4 py-8 space-y-2 overflow-y-auto custom-scroll">
+                <nav className="flex-1 px-4 py-8 space-y-3 overflow-y-auto custom-scroll">
                     <button onClick={() => setActiveView('pieces')} className={`nav-item ${activeView === 'pieces' ? 'active' : ''}`}>
-                        <List className="w-5 h-5 shrink-0" /> <span className="flex-1">Gestión de Piezas</span>
+                        <List className="w-5 h-5 shrink-0" />
+                        <span className="flex-1 text-left leading-none">Gestión de Piezas</span>
                     </button>
                     <button onClick={() => setActiveView('charts')} className={`nav-item ${activeView === 'charts' ? 'active' : ''}`}>
-                        <BarChart3 className="w-5 h-5 shrink-0" /> <span className="flex-1">Panel de Control</span>
+                        <BarChart3 className="w-5 h-5 shrink-0" />
+                        <span className="flex-1 text-left leading-none">Panel de Control</span>
                     </button>
                 </nav>
 
@@ -849,9 +851,9 @@ export default function App() {
                     outline-none transition-all focus:bg-white focus:ring-4 focus:ring-[#0E3B43]/5 focus:border-[#0E3B43] placeholder:text-slate-300;
                 }
                 .nav-item {
-                    @apply flex items-center gap-4 px-6 py-4 rounded-[1.25rem] text-sm font-black uppercase tracking-widest text-slate-400 transition-all active:scale-95;
+                    @apply flex items-center gap-3 px-5 py-3.5 rounded-xl text-[11px] font-extrabold uppercase tracking-[0.1em] text-slate-500 transition-all duration-200 active:scale-95 text-left w-full;
                 }
-                .nav-item:hover { @apply bg-slate-50 text-slate-600; }
+                .nav-item:hover { @apply bg-slate-50 text-slate-700; }
                 .nav-item.active { @apply bg-[#0E3B43] text-white shadow-xl shadow-[#0E3B43]/20; }
                 
                 .action-btn {
