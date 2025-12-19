@@ -11,12 +11,13 @@
         :root {
             --app-bg: #f8fafc;
             --card-bg: #ffffff;
-            --primary: #2563eb;
+            --primary: #0E3B43;
         }
         body { 
             font-family: 'Plus Jakarta Sans', sans-serif; 
             background-color: var(--app-bg);
             color: #1e293b;
+            margin: 0;
         }
         /* Glassmorphism utility */
         .glass-card {
@@ -67,5 +68,7 @@
 </head>
 <body class="antialiased">
     <div id="root"></div>
+    <!-- Punto de entrada de la aplicación -->
+    <script type="module" src="./index.tsx"></script>
 </body>
 </html>
