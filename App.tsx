@@ -18,7 +18,7 @@ import {
 import { formatTime, readExcel, isStateComplete } from './utils';
 import { 
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-    Cell, Legend
+    Cell, Legend, LabelList
 } from 'recharts';
 import { jsPDF } from "jspdf";
 import autoTable from 'jspdf-autotable';
@@ -30,7 +30,8 @@ import {
     Filter, Search, ChevronDown, Plus, Save, Edit2, X, Maximize2,
     PieChart as PieIcon, Activity, Scale, Layers, Box, Image as ImageIcon,
     HelpCircle, FileBox, ArrowRight, Link as LinkIcon, ExternalLink, Unlink,
-    History, Calendar, Clock, Archive, ArchiveRestore, Settings, Monitor
+    History, Calendar, Clock, Archive, ArchiveRestore, Settings, Monitor,
+    TrendingUp, Timer, Target, Zap, FileText
 } from 'lucide-react';
 
 // --- Brand Components ---
@@ -98,19 +99,41 @@ const Modal = ({ isOpen, onClose, title, children }: any) => {
     );
 };
 
-const Card = ({ children, className = "", title = "", icon: Icon }: any) => (
-    <div className={`bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col ${className}`}>
+const Card = ({ children, className = "", title = "", icon: Icon, subtitle = "" }: any) => (
+    <div className={`bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden flex flex-col ${className}`}>
         {(title || Icon) && (
-            <div className="px-6 py-4 border-b border-slate-100 flex items-center gap-3">
-                {Icon && <Icon className="w-5 h-5 text-slate-400" />}
-                <h3 className="font-bold text-slate-700">{title}</h3>
+            <div className="px-8 py-6 border-b border-slate-50 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                    {Icon && <div className="p-2.5 bg-slate-50 rounded-xl text-slate-400"><Icon className="w-5 h-5" /></div>}
+                    <div>
+                        <h3 className="font-bold text-slate-700 leading-tight">{title}</h3>
+                        {subtitle && <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">{subtitle}</p>}
+                    </div>
+                </div>
             </div>
         )}
-        <div className="p-6 flex-1">
+        <div className="p-8 flex-1">
             {children}
         </div>
     </div>
 );
+
+// --- Custom Tooltip for Chart ---
+const CustomTooltip = ({ active, payload, label }: any) => {
+    if (active && payload && payload.length) {
+        const data = payload[0].payload;
+        return (
+            <div className="bg-white/95 backdrop-blur-md p-4 rounded-2xl shadow-2xl border border-slate-100">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">{data.name}</p>
+                <div className="flex flex-col gap-1">
+                    <p className="text-sm font-bold text-slate-700">Completado: <span className="text-[#0E3B43]">{data.kg.toLocaleString()} kg</span></p>
+                    <p className="text-xs font-semibold text-slate-400">Porcentaje: <span className="text-slate-600">{data.percentage.toFixed(1)}%</span></p>
+                </div>
+            </div>
+        );
+    }
+    return null;
+};
 
 // --- Main App ---
 
@@ -298,6 +321,75 @@ export default function App() {
         } catch (err: any) { alert(err.message); } finally { setProcessing(false); if(fileInputRef.current) fileInputRef.current.value = ""; }
     };
 
+    const handleExportPDF = () => {
+        if (!activeProjectId) return;
+        const projectName = projects.find(p => p.id === activeProjectId)?.name || 'Proyecto';
+        const doc = new jsPDF('landscape');
+        
+        // Header
+        doc.setFontSize(20);
+        doc.setTextColor(14, 59, 67); // Solana Primary Color
+        doc.text("SOLANA SRL - Reporte de Producción", 14, 20);
+        
+        doc.setFontSize(12);
+        doc.setTextColor(100);
+        doc.text(`Obra: ${projectName}`, 14, 30);
+        doc.text(`Fecha: ${new Date().toLocaleDateString('es-AR')}`, 14, 36);
+
+        const tableHeaders = [
+            'Conjunto', 'N°', 'Peso (kg)', 'Fase', 
+            ...STATES.map(s => s.short)
+        ];
+
+        const tableRows = filteredPieces.map(p => [
+            p.conjunto,
+            p.numero,
+            p.peso.toFixed(2),
+            p.lote || '-',
+            ...STATES.map(s => isStateComplete(p[s.key]) ? 'OK' : '-')
+        ]);
+
+        autoTable(doc, {
+            head: [tableHeaders],
+            body: tableRows,
+            startY: 45,
+            theme: 'striped',
+            headStyles: { 
+                fillColor: [14, 59, 67], 
+                textColor: [255, 255, 255],
+                fontSize: 9,
+                fontStyle: 'bold'
+            },
+            bodyStyles: { fontSize: 8 },
+            alternateRowStyles: { fillColor: [248, 250, 252] },
+            margin: { top: 45 }
+        });
+
+        doc.save(`Solana_Reporte_${projectName.replace(/\s+/g, '_')}_${new Date().getTime()}.pdf`);
+    };
+
+    const handleExportExcel = () => {
+        if (!activeProjectId) return;
+        const projectName = projects.find(p => p.id === activeProjectId)?.name || 'Proyecto';
+        const dataToExport = filteredPieces.map(p => {
+            const base: any = {
+                'Conjunto': p.conjunto,
+                'N°': p.numero,
+                'Peso (kg)': p.peso,
+                'Fase': p.lote || '-'
+            };
+            STATES.forEach(s => {
+                base[s.label] = isStateComplete(p[s.key]) ? 'Completado' : 'Pendiente';
+            });
+            return base;
+        });
+
+        const ws = XLSX.utils.json_to_sheet(dataToExport);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Piezas");
+        XLSX.writeFile(wb, `Solana_Export_${projectName.replace(/\s+/g, '_')}.xlsx`);
+    };
+
     const toggleState = async (pieceId: string, stateKey: string, currentVal: any) => {
         if (!activeProjectId || !userProfile || !canEditState(stateKey)) return;
         const isDone = isStateComplete(currentVal);
@@ -347,13 +439,38 @@ export default function App() {
 
     const dashboardData = useMemo(() => {
         const chartPieces = activePieces.filter(p => selectedPhases.includes(Number(p.lote || 0)));
-        const total = chartPieces.reduce((sum, p) => sum + p.peso, 0);
+        const totalKg = chartPieces.reduce((sum, p) => sum + p.peso, 0);
+        const totalPieces = chartPieces.length;
+        
         const bars = STATES.map(st => {
             const kg = chartPieces.filter(p => isStateComplete(p[st.key])).reduce((sum, p) => sum + p.peso, 0);
-            return { name: st.label, short: st.short, kg: Math.round(kg), percentage: total > 0 ? (kg/total)*100 : 0, color: st.color };
+            return { name: st.label, short: st.short, kg: Math.round(kg), percentage: totalKg > 0 ? (kg/totalKg)*100 : 0, color: st.color };
         });
-        const progress = bars.length > 0 ? bars[bars.length - 1].percentage : 0;
-        return { bars, totalKg: Math.round(total), progress };
+
+        const lastStage = bars[bars.length - 1];
+        const progress = lastStage ? lastStage.percentage : 0;
+        const remainingKg = totalKg - (lastStage ? lastStage.kg : 0);
+        
+        // Find Bottleneck: Stage with most weight processed but not moved to next
+        let bottleneck = { name: 'Ninguno', kg: 0, color: '#94a3b8' };
+        for(let i=0; i<bars.length - 1; i++) {
+            const accumulation = bars[i].kg - bars[i+1].kg;
+            if(accumulation > bottleneck.kg) {
+                bottleneck = { name: bars[i].name, kg: accumulation, color: bars[i].color };
+            }
+        }
+
+        const piecesCompleted = chartPieces.filter(p => isStateComplete(p[STATES[STATES.length-1].key])).length;
+
+        return { 
+            bars, 
+            totalKg: Math.round(totalKg), 
+            progress, 
+            remainingKg: Math.round(remainingKg),
+            totalPieces,
+            piecesCompleted,
+            bottleneck
+        };
     }, [activePieces, selectedPhases]);
 
     if (authLoading) return (
@@ -592,13 +709,18 @@ export default function App() {
                                         </div>
                                     </div>
                                     
-                                    <div className="flex gap-2 w-full lg:w-auto">
+                                    <div className="flex flex-wrap gap-2 w-full lg:w-auto">
                                         {isOT && (
                                             <Button variant="primary" onClick={() => fileInputRef.current?.click()} loading={processing} className="flex-1 lg:flex-none">
                                                 <FileSpreadsheet className="w-4 h-4" /> Importar
                                             </Button>
                                         )}
-                                        <Button variant="secondary" onClick={() => {}} className="flex-1 lg:flex-none"><Download className="w-4 h-4" /> Exportar</Button>
+                                        <Button variant="secondary" onClick={handleExportExcel} className="flex-1 lg:flex-none">
+                                            <Download className="w-4 h-4" /> Excel
+                                        </Button>
+                                        <Button variant="secondary" onClick={handleExportPDF} className="flex-1 lg:flex-none">
+                                            <FileText className="w-4 h-4" /> PDF
+                                        </Button>
                                         <input type="file" ref={fileInputRef} className="hidden" accept=".xlsx" onChange={handleExcelUpload} />
                                     </div>
                                 </div>
@@ -666,10 +788,14 @@ export default function App() {
 
                         {activeView === 'charts' && (
                             <div className="space-y-8 pb-10">
-                                {/* Filters Analysis */}
-                                <Card title="Filtros de Análisis" icon={Filter}>
-                                    <div className="flex flex-wrap gap-2">
-                                        {uniquePhases.length === 0 ? <p className="text-slate-400 italic">No hay fases disponibles</p> : 
+                                {/* Dashboard Header Controls */}
+                                <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-6">
+                                    <div>
+                                        <h2 className="text-3xl font-black text-slate-800 tracking-tight">Análisis Operativo</h2>
+                                        <p className="text-slate-400 font-medium mt-1">Seleccione las fases para visualizar métricas avanzadas.</p>
+                                    </div>
+                                    <div className="flex flex-wrap gap-2 max-w-2xl justify-end">
+                                        {uniquePhases.length === 0 ? <p className="text-slate-400 italic">No hay fases cargadas</p> : 
                                         uniquePhases.map(ph => (
                                             <button 
                                                 key={ph} 
@@ -677,64 +803,174 @@ export default function App() {
                                                     if(selectedPhases.includes(ph)) setSelectedPhases(prev => prev.filter(x => x !== ph));
                                                     else setSelectedPhases(prev => [...prev, ph]);
                                                 }}
-                                                className={`px-5 py-2.5 rounded-2xl text-xs font-black uppercase tracking-widest transition-all ${selectedPhases.includes(ph) ? 'bg-[#0E3B43] text-white shadow-lg shadow-[#0E3B43]/20' : 'bg-white border border-slate-200 text-slate-400 hover:border-slate-300'}`}
+                                                className={`px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${selectedPhases.includes(ph) ? 'bg-[#0E3B43] text-white shadow-lg shadow-[#0E3B43]/20' : 'bg-white border border-slate-200 text-slate-400 hover:border-slate-300 hover:text-slate-600'}`}
                                             >
                                                 Fase {ph}
                                             </button>
                                         ))}
                                     </div>
-                                </Card>
+                                </div>
 
-                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                                    <Card title="Avance por Etapa (%)" icon={BarChart3} className="h-[500px]">
-                                        <ResponsiveContainer width="100%" height="100%">
-                                            <BarChart data={dashboardData.bars} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
-                                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                                                <XAxis dataKey="short" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 11, fontWeight: 700}} />
-                                                <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 11}} />
-                                                <Tooltip 
-                                                    cursor={{fill: '#f8fafc'}}
-                                                    contentStyle={{borderRadius: '16px', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)'}}
-                                                />
-                                                <Bar dataKey="percentage" radius={[8, 8, 0, 0]} barSize={45}>
-                                                    {dashboardData.bars.map((e, i) => <Cell key={i} fill={e.color} />)}
-                                                </Bar>
-                                            </BarChart>
-                                        </ResponsiveContainer>
-                                    </Card>
+                                {/* Main Stats Grid */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                                    <div className="bg-[#0E3B43] rounded-[2.5rem] p-8 text-white shadow-2xl shadow-[#0E3B43]/20 flex flex-col justify-between relative overflow-hidden group">
+                                        <div className="absolute -right-10 -bottom-10 w-40 h-40 bg-white/5 rounded-full blur-3xl group-hover:scale-150 transition-transform duration-700"></div>
+                                        <div>
+                                            <p className="text-[10px] font-black uppercase tracking-[2px] opacity-60">Avance General</p>
+                                            <h3 className="text-4xl font-black mt-2">{dashboardData.progress.toFixed(1)}%</h3>
+                                        </div>
+                                        <div className="mt-8">
+                                            <div className="h-2 w-full bg-white/10 rounded-full overflow-hidden">
+                                                <div className="h-full bg-white rounded-full transition-all duration-1000" style={{width: `${dashboardData.progress}%`}}></div>
+                                            </div>
+                                            <p className="text-[10px] font-bold mt-3 opacity-60">{dashboardData.piecesCompleted} de {dashboardData.totalPieces} piezas montadas</p>
+                                        </div>
+                                    </div>
 
-                                    <div className="grid grid-cols-1 gap-8">
-                                        <div className="bg-[#0E3B43] rounded-[2.5rem] p-10 text-white flex flex-col justify-between shadow-2xl shadow-[#0E3B43]/20">
-                                            <div className="flex justify-between items-start">
-                                                <SolanaSymbol className="w-12 h-12 opacity-90 scale-110" />
-                                                <div className="text-right">
-                                                    <p className="text-[10px] font-black uppercase tracking-widest opacity-60">Progreso Estimado</p>
-                                                    <h3 className="text-5xl font-black mt-1">{dashboardData.progress.toFixed(1)}%</h3>
+                                    <div className="bg-white rounded-[2.5rem] p-8 border border-slate-200 shadow-sm flex flex-col justify-between hover:border-[#0E3B43]/20 transition-all">
+                                        <div>
+                                            <div className="flex items-center gap-2 text-[#0E3B43] mb-2">
+                                                <Timer className="w-4 h-4" />
+                                                <p className="text-[10px] font-black uppercase tracking-[2px]">Carga Pendiente</p>
+                                            </div>
+                                            <h3 className="text-3xl font-black text-slate-800">{dashboardData.remainingKg.toLocaleString()} <span className="text-lg text-slate-400">kg</span></h3>
+                                        </div>
+                                        <div className="mt-8 flex items-end justify-between">
+                                            <div className="flex -space-x-2">
+                                                <div className="w-8 h-8 rounded-full bg-slate-100 border-2 border-white flex items-center justify-center text-[10px] font-black">OT</div>
+                                                <div className="w-8 h-8 rounded-full bg-[#0E3B43]/10 border-2 border-white flex items-center justify-center text-[10px] font-black text-[#0E3B43]">PR</div>
+                                                <div className="w-8 h-8 rounded-full bg-green-50 border-2 border-white flex items-center justify-center text-[10px] font-black text-green-600">OB</div>
+                                            </div>
+                                            <p className="text-[10px] font-bold text-slate-400">Restante del total</p>
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-white rounded-[2.5rem] p-8 border border-slate-200 shadow-sm flex flex-col justify-between hover:border-red-100 transition-all group">
+                                        <div>
+                                            <div className="flex items-center gap-2 text-red-500 mb-2">
+                                                <AlertTriangle className="w-4 h-4" />
+                                                <p className="text-[10px] font-black uppercase tracking-[2px]">Cuello de Botella</p>
+                                            </div>
+                                            <h3 className="text-2xl font-black text-slate-800">{dashboardData.bottleneck.name}</h3>
+                                        </div>
+                                        <div className="mt-8">
+                                            <p className="text-xs font-bold text-slate-500">{dashboardData.bottleneck.kg.toLocaleString()} kg retenidos</p>
+                                            <div className="h-1.5 w-full bg-slate-50 rounded-full mt-2 overflow-hidden">
+                                                <div className="h-full bg-red-400 rounded-full group-hover:w-full transition-all duration-700" style={{width: '40%'}}></div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-white rounded-[2.5rem] p-8 border border-slate-200 shadow-sm flex flex-col justify-between hover:border-blue-100 transition-all">
+                                        <div>
+                                            <div className="flex items-center gap-2 text-blue-500 mb-2">
+                                                <Target className="w-4 h-4" />
+                                                <p className="text-[10px] font-black uppercase tracking-[2px]">Métrica de Éxito</p>
+                                            </div>
+                                            <h3 className="text-3xl font-black text-slate-800">{Math.round((dashboardData.piecesCompleted / (dashboardData.totalPieces || 1)) * 100)}%</h3>
+                                        </div>
+                                        <div className="mt-8 flex justify-between items-center">
+                                            <p className="text-[10px] font-bold text-slate-400">Montaje Finalizado</p>
+                                            <Zap className="w-4 h-4 text-yellow-400 fill-yellow-400" />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Chart Section */}
+                                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                                    <div className="lg:col-span-2">
+                                        <Card title="Distribución de Carga por Etapa" subtitle="Peso acumulado en cada instancia del proceso" icon={TrendingUp}>
+                                            <div className="h-[400px]">
+                                                <ResponsiveContainer width="100%" height="100%">
+                                                    <BarChart data={dashboardData.bars} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
+                                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                                                        <XAxis 
+                                                            dataKey="short" 
+                                                            axisLine={false} 
+                                                            tickLine={false} 
+                                                            tick={{fill: '#94a3b8', fontSize: 11, fontWeight: 800}} 
+                                                        />
+                                                        <YAxis 
+                                                            axisLine={false} 
+                                                            tickLine={false} 
+                                                            tick={{fill: '#94a3b8', fontSize: 11}} 
+                                                        />
+                                                        <Tooltip 
+                                                            cursor={{fill: '#f8fafc'}}
+                                                            content={<CustomTooltip />}
+                                                        />
+                                                        <Bar dataKey="kg" radius={[12, 12, 0, 0]} barSize={50}>
+                                                            {dashboardData.bars.map((e, i) => (
+                                                                <Cell key={i} fill={e.color} fillOpacity={0.9} />
+                                                            ))}
+                                                            <LabelList 
+                                                                dataKey="kg" 
+                                                                position="top" 
+                                                                formatter={(v: number) => `${Math.round(v / 1000)}t`}
+                                                                style={{fill: '#94a3b8', fontSize: 10, fontWeight: 900}} 
+                                                            />
+                                                        </Bar>
+                                                    </BarChart>
+                                                </ResponsiveContainer>
+                                            </div>
+                                        </Card>
+                                    </div>
+
+                                    <div className="space-y-6">
+                                        <Card title="Desglose por Fase" subtitle="Eficiencia individual de lotes" icon={Layers}>
+                                            <div className="space-y-4 max-h-[340px] overflow-y-auto custom-scroll pr-2">
+                                                {selectedPhases.map(ph => {
+                                                    const phasePieces = activePieces.filter(p => Number(p.lote) === ph);
+                                                    const phKg = phasePieces.reduce((s, p) => s + p.peso, 0);
+                                                    const phComp = phasePieces.filter(p => isStateComplete(p[STATES[STATES.length-1].key])).length;
+                                                    const phPerc = (phComp / (phasePieces.length || 1)) * 100;
+                                                    
+                                                    return (
+                                                        <div key={ph} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 group hover:bg-white hover:shadow-md transition-all">
+                                                            <div className="flex justify-between items-start mb-3">
+                                                                <span className="text-xs font-black text-slate-800">Fase {ph}</span>
+                                                                <span className="text-[10px] font-black text-[#0E3B43]">{Math.round(phKg)} kg</span>
+                                                            </div>
+                                                            <div className="h-1.5 w-full bg-slate-200 rounded-full overflow-hidden">
+                                                                <div className="h-full bg-[#0E3B43] rounded-full transition-all duration-1000" style={{width: `${phPerc}%`}}></div>
+                                                            </div>
+                                                            <div className="flex justify-between mt-2">
+                                                                <span className="text-[9px] font-bold text-slate-400 uppercase">{phComp} de {phasePieces.length} piezas</span>
+                                                                <span className="text-[9px] font-bold text-[#0E3B43]">{phPerc.toFixed(1)}%</span>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                                {selectedPhases.length === 0 && (
+                                                    <div className="py-10 text-center">
+                                                        <HelpCircle className="w-8 h-8 text-slate-200 mx-auto mb-2" />
+                                                        <p className="text-xs font-bold text-slate-300 uppercase tracking-widest">Sin fases seleccionadas</p>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </Card>
+
+                                        <div className="p-8 bg-white rounded-[2.5rem] border border-slate-200 shadow-sm relative group overflow-hidden">
+                                            <div className="flex items-center gap-4">
+                                                <div className="p-4 bg-green-50 rounded-[1.5rem] text-green-600">
+                                                    <Box className="w-6 h-6" />
+                                                </div>
+                                                <div>
+                                                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Total Producción</p>
+                                                    <h4 className="text-2xl font-black text-slate-800">{dashboardData.totalPieces} Unidades</h4>
                                                 </div>
                                             </div>
-                                            <div className="mt-12">
-                                                <div className="flex justify-between text-[10px] font-black uppercase tracking-widest mb-3 opacity-60">
-                                                    <span>Eficiencia</span>
-                                                    <span>{dashboardData.totalKg.toLocaleString()} kg totales</span>
+                                            <div className="mt-6 pt-6 border-t border-slate-50 flex justify-between">
+                                                <div>
+                                                    <p className="text-[9px] font-black text-slate-400 uppercase">En proceso</p>
+                                                    <p className="text-lg font-black text-[#0E3B43]">{dashboardData.totalPieces - dashboardData.piecesCompleted}</p>
                                                 </div>
-                                                <div className="h-5 w-full bg-white/10 rounded-full overflow-hidden p-1.5 border border-white/10">
-                                                    <div className="h-full bg-white rounded-full transition-all duration-1000 shadow-[0_0_20px_rgba(255,255,255,0.4)]" style={{width: `${dashboardData.progress}%`}}></div>
+                                                <div className="text-right">
+                                                    <p className="text-[9px] font-black text-slate-400 uppercase">Finalizadas</p>
+                                                    <p className="text-lg font-black text-green-600">{dashboardData.piecesCompleted}</p>
                                                 </div>
                                             </div>
                                         </div>
-
-                                        <Card title="Indicadores Clave" icon={Layers}>
-                                            <div className="space-y-4">
-                                                <div className="flex items-center justify-between p-5 bg-slate-50 rounded-2xl border border-slate-100">
-                                                    <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Carga Analizada</span>
-                                                    <span className="text-xl font-black text-slate-800">{dashboardData.totalKg.toLocaleString()} kg</span>
-                                                </div>
-                                                <div className="flex items-center justify-between p-5 bg-[#0E3B43]/5 rounded-2xl border border-[#0E3B43]/10">
-                                                    <span className="text-xs font-bold text-[#0E3B43] uppercase tracking-wider">Etapa Crítica</span>
-                                                    <span className="text-xl font-black text-[#0E3B43]">{STATES[STATES.length-1].label}</span>
-                                                </div>
-                                            </div>
-                                        </Card>
                                     </div>
                                 </div>
                             </div>
