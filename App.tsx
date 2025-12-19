@@ -2,6 +2,8 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
     signInWithEmailAndPassword, 
+    createUserWithEmailAndPassword,
+    sendPasswordResetEmail,
     onAuthStateChanged, 
     signOut,
     User 
@@ -34,7 +36,7 @@ import {
     Monitor, Settings, Info, Calendar, User as UserIcon, ArrowRight,
     Truck, Activity, AlertCircle, Gauge, Boxes, ArrowUpRight, Ship, Warehouse,
     Maximize2, ExternalLink, Image as ImageIcon, Box, Edit3, Camera, Save,
-    Filter, UserCircle, Briefcase, FileText, Menu
+    Filter, UserCircle, Briefcase, FileText, Menu, Mail, Key, UserPlus
 } from 'lucide-react';
 
 // --- UI Components ---
@@ -128,6 +130,10 @@ export default function App() {
     const [processing, setProcessing] = useState(false);
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
+    // Auth states
+    const [authMode, setAuthMode] = useState<'login' | 'signup' | 'forgot'>('login');
+    const [authMessage, setAuthMessage] = useState<{ text: string, type: 'error' | 'success' } | null>(null);
+
     const [modals, setModals] = useState({
         login: true,
         projects: false,
@@ -160,6 +166,9 @@ export default function App() {
                     const data = { id: snap.docs[0].id, ...snap.docs[0].data() } as UserProfile;
                     setUserProfile(data);
                     setProfileEditData(data);
+                } else {
+                    // Si el usuario existe en Auth pero no en Firestore, lo manejamos (ej. registro recién hecho)
+                    console.log("Perfil de usuario no encontrado en Firestore, esperando creación.");
                 }
                 setModals(m => ({ ...m, login: false }));
             } else {
@@ -232,7 +241,6 @@ export default function App() {
             res.statesCount[s.key] = 0;
         });
 
-        // Aplicamos filtro de fase a las estadísticas
         const relevantPieces = pieces.filter(p => {
             if (p.eliminada) return false;
             if (phaseFilter && (p.lote||"").toString() !== phaseFilter) return false;
@@ -258,7 +266,67 @@ export default function App() {
         return res;
     }, [pieces, phaseFilter]);
 
-    // Handlers
+    // Auth Handlers
+    const handleLogin = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setProcessing(true);
+        setAuthMessage(null);
+        const email = (e.target as any).email.value;
+        const pass = (e.target as any).pass.value;
+        try {
+            await signInWithEmailAndPassword(auth, email, pass);
+        } catch (e: any) {
+            setAuthMessage({ text: "CREDENCIALES INVÁLIDAS", type: 'error' });
+        } finally {
+            setProcessing(false);
+        }
+    };
+
+    const handleSignUp = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setProcessing(true);
+        setAuthMessage(null);
+        const email = (e.target as any).email.value;
+        const pass = (e.target as any).pass.value;
+        const nombre = (e.target as any).nombre.value;
+        const apellido = (e.target as any).apellido.value;
+
+        try {
+            const userCredential = await createUserWithEmailAndPassword(auth, email, pass);
+            // Crear el perfil en Firestore
+            const newUserProfile = {
+                authUid: userCredential.user.uid,
+                email,
+                nombre: nombre.toUpperCase(),
+                apellido: apellido.toUpperCase(),
+                area: "Sin Área",
+                createdAt: serverTimestamp()
+            };
+            await addDoc(collection(db, `artifacts/${appId}/public/data/users`), newUserProfile);
+            // El useEffect de Auth se encargará de cargar el perfil
+        } catch (e: any) {
+            setAuthMessage({ text: e.message.includes("email-already") ? "EL CORREO YA ESTÁ REGISTRADO" : "ERROR AL CREAR CUENTA", type: 'error' });
+        } finally {
+            setProcessing(false);
+        }
+    };
+
+    const handlePasswordReset = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setProcessing(true);
+        setAuthMessage(null);
+        const email = (e.target as any).email.value;
+        try {
+            await sendPasswordResetEmail(auth, email);
+            setAuthMessage({ text: "ENLACE ENVIADO AL CORREO", type: 'success' });
+        } catch (e: any) {
+            setAuthMessage({ text: "EL CORREO NO EXISTE", type: 'error' });
+        } finally {
+            setProcessing(false);
+        }
+    };
+
+    // Data Handlers
     const handleToggleState = async (pieceId: string, stateKey: string, currentVal: any) => {
         if (!canEditState(stateKey)) return;
         const isDone = isStateComplete(currentVal);
@@ -267,8 +335,8 @@ export default function App() {
 
         const auditObj = { 
             completado: newState, 
-            usuarioId: userProfile?.id, 
-            usuarioNombre: `${userProfile?.nombre} ${userProfile?.apellido}`, 
+            usuarioId: userProfile?.id || null, 
+            usuarioNombre: userProfile ? `${userProfile.nombre} ${userProfile.apellido}` : 'Sistema', 
             fecha: new Date() 
         };
 
@@ -280,7 +348,7 @@ export default function App() {
         const pieceData = pieces.find(p => p.id === pieceId);
         batch.set(logRef, {
             date: serverTimestamp(),
-            user: `${userProfile?.nombre} ${userProfile?.apellido}`,
+            user: userProfile ? `${userProfile.nombre} ${userProfile.apellido}` : 'Desconocido',
             file: `Cambio de Estado`,
             added: 0,
             removed: 0,
@@ -351,7 +419,7 @@ export default function App() {
                         eliminada: false,
                         comentario: '',
                         loadedAt: serverTimestamp(),
-                        loadedBy: `${userProfile?.nombre} ${userProfile?.apellido}`
+                        loadedBy: userProfile ? `${userProfile.nombre} ${userProfile.apellido}` : 'Sistema'
                     });
                 });
 
@@ -359,7 +427,7 @@ export default function App() {
                     const logRef = doc(collection(db, `artifacts/${appId}/public/data/projects/${activeProjectId}/sync_logs`));
                     batch.set(logRef, {
                         date: serverTimestamp(),
-                        user: `${userProfile?.nombre} ${userProfile?.apellido}`,
+                        user: userProfile ? `${userProfile.nombre} ${userProfile.apellido}` : 'Sistema',
                         file: file.name,
                         added: totalItems,
                         removed: 0,
@@ -372,7 +440,6 @@ export default function App() {
             alert(`Sincronización completa: ${totalItems} piezas importadas.`);
         } catch (err: any) {
             alert("Fallo de importación: " + err.message);
-            console.error(err);
         } finally {
             setProcessing(false);
             if (fileRef.current) fileRef.current.value = '';
@@ -507,7 +574,6 @@ export default function App() {
             const doc = new jsPDF('p', 'mm', 'a4');
             const margin = 14;
 
-            // Cabecera
             doc.setFillColor(51, 65, 85);
             doc.rect(0, 0, 210, 40, 'F');
             doc.setTextColor(255, 255, 255);
@@ -521,7 +587,6 @@ export default function App() {
             doc.text(`Generado por: ${userProfile?.nombre} ${userProfile?.apellido}`, margin, 50);
             doc.text(`Fecha: ${new Date().toLocaleString()}`, margin, 55);
 
-            // Resumen Global
             doc.setFontSize(14);
             doc.text("Resumen de Avance", margin, 70);
             const cert = stats.totalKg > 0 ? ((stats.statesKg['montado'] / stats.totalKg) * 100).toFixed(1) : 0;
@@ -541,7 +606,6 @@ export default function App() {
                 headStyles: { fillColor: [13, 148, 136] }
             });
 
-            // Detalle por Etapa
             doc.text("Avance por Etapa de Fabricación", margin, (doc as any).lastAutoTable.finalY + 15);
             autoTable(doc, {
                 startY: (doc as any).lastAutoTable.finalY + 20,
@@ -554,7 +618,6 @@ export default function App() {
                 theme: 'grid'
             });
 
-            // Página 2: Visualización de Gráficos
             doc.addPage();
             doc.setFillColor(51, 65, 85);
             doc.rect(0, 0, 210, 20, 'F');
@@ -567,7 +630,6 @@ export default function App() {
             
             let currentY = 35;
 
-            // Capturar Gráfico 1
             if (chart1Ref.current) {
                 const canvas1 = await html2canvas(chart1Ref.current, { scale: 2 });
                 const imgData1 = canvas1.toDataURL('image/png');
@@ -576,7 +638,6 @@ export default function App() {
                 currentY += 105;
             }
 
-            // Capturar Gráfico 2
             if (chart2Ref.current) {
                 const canvas2 = await html2canvas(chart2Ref.current, { scale: 2 });
                 const imgData2 = canvas2.toDataURL('image/png');
@@ -587,7 +648,7 @@ export default function App() {
             doc.save(`Monitor_${activeProject.name}_${new Date().toISOString().slice(0, 10)}.pdf`);
         } catch (error) {
             console.error("Error al exportar PDF:", error);
-            alert("Ocurrió un error al generar el PDF de los gráficos.");
+            alert("Ocurrió un error al generar el PDF.");
         } finally {
             setProcessing(false);
         }
@@ -603,19 +664,77 @@ export default function App() {
     if (modals.login) {
         return (
             <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6">
-                <div className="w-full max-w-md bg-white rounded-[2.5rem] shadow-2xl p-12 flex flex-col items-center border border-slate-200">
+                <div className="w-full max-w-md bg-white rounded-[2.5rem] shadow-2xl p-8 md:p-12 flex flex-col items-center border border-slate-200">
                     <img src="https://www.solanasrl.com.ar/wp-content/uploads/cropped-sticky-2.png" className="w-48 mb-12" alt="Solana" />
-                    <h1 className="text-lg font-black text-slate-800 uppercase tracking-widest mb-8 text-center">Acceso Industrial</h1>
-                    <form className="w-full space-y-4" onSubmit={async (e) => {
-                        e.preventDefault();
-                        const email = (e.target as any).email.value;
-                        const pass = (e.target as any).pass.value;
-                        try { await signInWithEmailAndPassword(auth, email, pass); } catch (e: any) { alert("Usuario o contraseña incorrectos"); }
-                    }}>
-                        <input name="email" type="email" required placeholder="USUARIO" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-6 py-4 text-slate-800 placeholder:text-slate-400 outline-none focus:border-slate-400 transition-all font-bold text-xs tracking-widest" />
-                        <input name="pass" type="password" required placeholder="CONTRASEÑA" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-6 py-4 text-slate-800 placeholder:text-slate-400 outline-none focus:border-slate-400 transition-all font-bold text-xs tracking-widest" />
-                        <Button type="submit" className="w-full h-14">Entrar</Button>
-                    </form>
+                    
+                    <div className="w-full space-y-8 animate-in fade-in duration-500">
+                        <div className="text-center">
+                            <h1 className="text-lg font-black text-slate-800 uppercase tracking-widest mb-2">
+                                {authMode === 'login' ? 'Acceso Industrial' : authMode === 'signup' ? 'Registro de Cuenta' : 'Recuperar Acceso'}
+                            </h1>
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tight">
+                                {authMode === 'login' ? 'INGRESE SUS CREDENCIALES DE SOLANA' : authMode === 'signup' ? 'COMPLETE LOS DATOS PARA SU NUEVA CUENTA' : 'LE ENVIAREMOS UN ENLACE PARA RESTABLECER'}
+                            </p>
+                        </div>
+
+                        {authMode === 'login' && (
+                            <form className="w-full space-y-4" onSubmit={handleLogin}>
+                                <div className="relative">
+                                    <Mail className="w-4 h-4 absolute left-5 top-1/2 -translate-y-1/2 text-slate-300" />
+                                    <input name="email" type="email" required placeholder="CORREO ELECTRÓNICO" className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-12 pr-6 py-4 text-slate-800 placeholder:text-slate-400 outline-none focus:border-slate-400 transition-all font-bold text-xs tracking-widest" />
+                                </div>
+                                <div className="relative">
+                                    <Key className="w-4 h-4 absolute left-5 top-1/2 -translate-y-1/2 text-slate-300" />
+                                    <input name="pass" type="password" required placeholder="CONTRASEÑA" className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-12 pr-6 py-4 text-slate-800 placeholder:text-slate-400 outline-none focus:border-slate-400 transition-all font-bold text-xs tracking-widest" />
+                                </div>
+                                <Button type="submit" loading={processing} className="w-full h-14">Entrar</Button>
+                                
+                                <div className="flex flex-col gap-3 pt-4">
+                                    <button type="button" onClick={() => { setAuthMode('forgot'); setAuthMessage(null); }} className="text-[10px] font-black text-slate-400 uppercase hover:text-slate-600 transition-colors">¿Olvidó su contraseña?</button>
+                                    <div className="h-px bg-slate-100" />
+                                    <button type="button" onClick={() => { setAuthMode('signup'); setAuthMessage(null); }} className="flex items-center justify-center gap-2 text-[10px] font-black text-teal-600 uppercase hover:text-teal-700 transition-colors">
+                                        <UserPlus className="w-3.5 h-3.5" /> Crear una cuenta nueva
+                                    </button>
+                                </div>
+                            </form>
+                        )}
+
+                        {authMode === 'signup' && (
+                            <form className="w-full space-y-4" onSubmit={handleSignUp}>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <input name="nombre" required placeholder="NOMBRE" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-6 py-4 text-slate-800 placeholder:text-slate-400 outline-none focus:border-slate-400 font-bold text-xs tracking-widest" />
+                                    <input name="apellido" required placeholder="APELLIDO" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-6 py-4 text-slate-800 placeholder:text-slate-400 outline-none focus:border-slate-400 font-bold text-xs tracking-widest" />
+                                </div>
+                                <div className="relative">
+                                    <Mail className="w-4 h-4 absolute left-5 top-1/2 -translate-y-1/2 text-slate-300" />
+                                    <input name="email" type="email" required placeholder="CORREO ELECTRÓNICO" className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-12 pr-6 py-4 text-slate-800 placeholder:text-slate-400 outline-none focus:border-slate-400 transition-all font-bold text-xs tracking-widest" />
+                                </div>
+                                <div className="relative">
+                                    <Key className="w-4 h-4 absolute left-5 top-1/2 -translate-y-1/2 text-slate-300" />
+                                    <input name="pass" type="password" required placeholder="CREAR CONTRASEÑA" className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-12 pr-6 py-4 text-slate-800 placeholder:text-slate-400 outline-none focus:border-slate-400 transition-all font-bold text-xs tracking-widest" />
+                                </div>
+                                <Button type="submit" loading={processing} className="w-full h-14 bg-teal-600 hover:bg-teal-700">Registrarse</Button>
+                                <button type="button" onClick={() => { setAuthMode('login'); setAuthMessage(null); }} className="w-full text-[10px] font-black text-slate-400 uppercase hover:text-slate-600 transition-colors">Volver al inicio de sesión</button>
+                            </form>
+                        )}
+
+                        {authMode === 'forgot' && (
+                            <form className="w-full space-y-4" onSubmit={handlePasswordReset}>
+                                <div className="relative">
+                                    <Mail className="w-4 h-4 absolute left-5 top-1/2 -translate-y-1/2 text-slate-300" />
+                                    <input name="email" type="email" required placeholder="CORREO ELECTRÓNICO" className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-12 pr-6 py-4 text-slate-800 placeholder:text-slate-400 outline-none focus:border-slate-400 transition-all font-bold text-xs tracking-widest" />
+                                </div>
+                                <Button type="submit" loading={processing} className="w-full h-14">Enviar Enlace</Button>
+                                <button type="button" onClick={() => { setAuthMode('login'); setAuthMessage(null); }} className="w-full text-[10px] font-black text-slate-400 uppercase hover:text-slate-600 transition-colors">Volver al inicio de sesión</button>
+                            </form>
+                        )}
+
+                        {authMessage && (
+                            <div className={`p-4 rounded-xl text-center border animate-in slide-in-from-top-2 duration-300 ${authMessage.type === 'error' ? 'bg-red-50 border-red-100 text-red-600' : 'bg-teal-50 border-teal-100 text-teal-600'}`}>
+                                <p className="text-[10px] font-black uppercase tracking-widest">{authMessage.text}</p>
+                            </div>
+                        )}
+                    </div>
                 </div>
             </div>
         );
@@ -663,7 +782,7 @@ export default function App() {
                             {userProfile?.avatarUrl ? (
                                 <img src={userProfile.avatarUrl} className="w-full h-full object-cover" alt="User" />
                             ) : (
-                                userProfile?.nombre?.charAt(0)
+                                userProfile?.nombre?.charAt(0) || '?'
                             )}
                         </div>
                         <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-slate-700 rounded-full flex items-center justify-center border border-white/20 group-hover:bg-teal-500 transition-colors">
@@ -671,8 +790,8 @@ export default function App() {
                         </div>
                     </div>
                     <div className="overflow-hidden">
-                        <p className="text-xs font-black text-white truncate group-hover:text-teal-400 transition-colors">{userProfile?.nombre} {userProfile?.apellido}</p>
-                        <p className="text-[9px] font-bold text-slate-400 uppercase truncate leading-none mt-1">{userArea}</p>
+                        <p className="text-xs font-black text-white truncate group-hover:text-teal-400 transition-colors">{userProfile ? `${userProfile.nombre} ${userProfile.apellido}` : 'Sin Perfil'}</p>
+                        <p className="text-[9px] font-bold text-slate-400 uppercase truncate leading-none mt-1">{userArea || 'Visitante'}</p>
                     </div>
                 </div>
                 <button onClick={() => signOut(auth)} className="w-full flex items-center justify-center gap-3 px-4 py-3 rounded-xl border border-white/10 text-slate-400 hover:text-red-400 transition-all text-[10px] font-black uppercase tracking-widest">
@@ -684,39 +803,26 @@ export default function App() {
 
     return (
         <div className="h-screen flex bg-slate-50 overflow-hidden relative">
-            {/* Mobile Burger Menu */}
             <div className="lg:hidden fixed top-4 left-4 z-[100]">
-                <button 
-                    onClick={() => setMobileMenuOpen(!mobileMenuOpen)} 
-                    className="p-3 bg-slate-700 text-white rounded-xl shadow-xl active:scale-95 transition-all"
-                >
+                <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} className="p-3 bg-slate-700 text-white rounded-xl shadow-xl active:scale-95 transition-all">
                     {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
                 </button>
             </div>
 
-            {/* Sidebar (Desktop) */}
             <aside className="hidden lg:flex w-72 bg-slate-700 h-full flex-col z-50 shadow-2xl">
                 <SidebarContent />
             </aside>
 
-            {/* Sidebar (Mobile Overlay) */}
-            <div 
-                className={`lg:hidden fixed inset-0 z-[90] bg-slate-900/60 backdrop-blur-sm transition-opacity duration-300 ${mobileMenuOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
-                onClick={() => setMobileMenuOpen(false)}
-            />
-            <aside 
-                className={`lg:hidden fixed left-0 top-0 h-full w-72 bg-slate-700 z-[100] flex flex-col shadow-2xl transition-transform duration-300 transform ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}
-            >
+            <div className={`lg:hidden fixed inset-0 z-[90] bg-slate-900/60 backdrop-blur-sm transition-opacity duration-300 ${mobileMenuOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`} onClick={() => setMobileMenuOpen(false)} />
+            <aside className={`lg:hidden fixed left-0 top-0 h-full w-72 bg-slate-700 z-[100] flex flex-col shadow-2xl transition-transform duration-300 transform ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
                 <SidebarContent />
             </aside>
 
-            {/* Main Content */}
             <main className="flex-1 overflow-y-auto h-screen custom-scroll bg-[#f8fafc] w-full">
                 {processing && (
                     <div className="fixed inset-0 z-[200] flex flex-col items-center justify-center bg-slate-900/60 backdrop-blur-sm p-6 text-center">
                         <Loader2 className="w-12 h-12 md:w-16 md:h-16 animate-spin text-teal-400 mb-6" />
-                        <h2 className="text-xl md:text-2xl font-black text-white uppercase tracking-widest">Sincronizando...</h2>
-                        <p className="text-slate-300 font-bold mt-2 text-sm">Estamos procesando el lote de información, por favor espere.</p>
+                        <h2 className="text-xl md:text-2xl font-black text-white uppercase tracking-widest">Procesando...</h2>
                     </div>
                 )}
                 
@@ -730,7 +836,6 @@ export default function App() {
                         </div>
                     ) : (
                         <div className="animate-in fade-in slide-in-from-bottom-5 duration-500 space-y-6 md:space-y-10">
-                            {/* Header Panel */}
                             <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 bg-white p-5 md:p-8 rounded-[1.5rem] md:rounded-[2.5rem] border border-slate-200 shadow-sm">
                                 <div className="w-full md:w-auto">
                                     <h1 className="text-2xl md:text-4xl font-black text-slate-900 tracking-tighter uppercase truncate">{activeProject?.name}</h1>
@@ -742,17 +847,12 @@ export default function App() {
                                 <div className="flex flex-wrap gap-3 w-full lg:w-auto">
                                     <div className="relative flex-1 lg:flex-none h-12 md:h-14 flex items-center bg-slate-50 border border-slate-200 px-4 md:px-6 rounded-xl group transition-all focus-within:border-teal-400">
                                         <Filter className="w-4 h-4 text-slate-400 mr-2 md:mr-3" />
-                                        <select 
-                                            className="bg-transparent text-[9px] md:text-[10px] font-black uppercase tracking-widest text-slate-700 outline-none appearance-none pr-6 md:pr-8 w-full" 
-                                            value={phaseFilter} 
-                                            onChange={e => setPhaseFilter(e.target.value)}
-                                        >
+                                        <select className="bg-transparent text-[9px] md:text-[10px] font-black uppercase tracking-widest text-slate-700 outline-none appearance-none pr-6 md:pr-8 w-full" value={phaseFilter} onChange={e => setPhaseFilter(e.target.value)}>
                                             <option value="">Todas las Fases</option>
                                             {uniquePhases.map(ph => <option key={ph} value={ph}>Fase {ph}</option>)}
                                         </select>
                                         <ChevronDown className="w-4 h-4 absolute right-4 md:right-5 text-slate-400 pointer-events-none" />
                                     </div>
-
                                     <div className="bg-slate-800 text-white px-5 md:px-8 py-3 md:py-4 rounded-xl md:rounded-2xl shadow-xl flex flex-col items-center justify-center min-w-[100px] md:min-w-[140px] flex-none">
                                         <span className="text-[7px] md:text-[9px] font-black text-teal-400 uppercase tracking-widest mb-0.5 md:mb-1">Certificado</span>
                                         <span className="text-lg md:text-2xl font-black">{stats.totalKg > 0 ? ((stats.statesKg['montado'] / stats.totalKg) * 100).toFixed(1) : 0}%</span>
@@ -766,12 +866,7 @@ export default function App() {
                                         <div className="flex-1 flex items-center gap-4 w-full">
                                             <div className="relative flex-1 group">
                                                 <Search className="w-5 h-5 absolute left-4 md:left-5 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-slate-900 transition-colors" />
-                                                <input 
-                                                    placeholder="CONJUNTO..." 
-                                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-12 md:pl-14 pr-4 md:pr-6 py-3 md:py-4 text-[10px] md:text-xs font-black uppercase tracking-widest text-slate-800 outline-none focus:bg-white focus:border-slate-400 transition-all"
-                                                    value={searchTerm}
-                                                    onChange={e => setSearchTerm(e.target.value)}
-                                                />
+                                                <input placeholder="CONJUNTO..." className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-12 md:pl-14 pr-4 md:pr-6 py-3 md:py-4 text-[10px] md:text-xs font-black uppercase tracking-widest text-slate-800 outline-none focus:bg-white focus:border-slate-400 transition-all" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
                                             </div>
                                         </div>
                                         <div className="flex gap-2 w-full lg:w-auto justify-end">
@@ -791,9 +886,7 @@ export default function App() {
                                         </div>
                                     </div>
 
-                                    {/* List / Table View */}
                                     <div className="space-y-4">
-                                        {/* Header visible solo en desktop */}
                                         <div className="hidden lg:flex items-center px-10 py-4 text-[9px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
                                             <div className="w-10 text-center mr-8">#</div>
                                             <div className="flex-1">Conjunto / Pieza</div>
@@ -817,7 +910,6 @@ export default function App() {
                                                             }} className={selectedPieces.has(p.id) ? 'text-teal-600' : 'text-slate-200 hover:text-slate-400'}>
                                                                 {selectedPieces.has(p.id) ? <CheckSquare className="w-6 h-6" /> : <Square className="w-6 h-6" />}
                                                             </button>
-                                                            <div className="lg:w-10 hidden lg:block" /> {/* Espaciado para Desktop */}
                                                             <div>
                                                                 <p className="font-bold text-slate-700 text-sm md:text-base leading-tight">{p.conjunto}</p>
                                                                 <p className="lg:hidden text-[10px] font-black text-slate-400 uppercase mt-1">Masa: {(p.peso||0).toFixed(2)} kg</p>
@@ -828,12 +920,10 @@ export default function App() {
                                                         </div>
                                                     </div>
 
-                                                    <div className="hidden lg:block flex-1" /> {/* Spacer Desktop */}
-                                                    
+                                                    <div className="hidden lg:block flex-1" />
                                                     <div className="hidden lg:block w-28 text-right pr-10 font-mono text-xs">{(p.peso||0).toFixed(2)}</div>
                                                     <div className="hidden lg:block w-32 text-center"><span className="text-[10px] font-black bg-teal-50 text-teal-700 border border-teal-100 px-3 py-1 rounded-lg uppercase">{p.lote || '---'}</span></div>
                                                     
-                                                    {/* Status indicators: Scroll horizontal en móvil */}
                                                     <div className="flex-1 flex items-center justify-between lg:justify-center gap-3 md:gap-4 overflow-x-auto pb-6 pt-2 lg:pb-0 lg:pt-0 no-scrollbar">
                                                         {STATES.map(s => <StatusBadge key={s.key} state={s} p={p} onToggle={handleToggleState} allowed={canEditState(s.key)} />)}
                                                     </div>
@@ -851,10 +941,8 @@ export default function App() {
                                     </div>
                                 </div>
                             ) : (
-                                /* Monitor View Responsivo */
                                 <div className="space-y-6 md:space-y-10 animate-in fade-in slide-in-from-bottom-5 duration-500 pb-20">
                                     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 md:gap-8">
-                                        {/* Visualizer Card */}
                                         <div className="lg:col-span-8 bg-white rounded-[1.5rem] md:rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden flex flex-col min-h-[350px] md:min-h-[500px]">
                                             <div className="p-5 md:p-8 border-b border-slate-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white">
                                                 <div>
@@ -874,46 +962,24 @@ export default function App() {
                                                 </div>
                                             </div>
                                             <div className="flex-1 bg-slate-50 relative flex items-center justify-center min-h-[250px]">
-                                                {activeProject?.imageUrl ? (
-                                                    <img src={activeProject.imageUrl} className="w-full h-full object-contain" alt="Proyecto" />
-                                                ) : (
-                                                    <div className="flex flex-col items-center opacity-20">
-                                                        <ImageIcon className="w-12 h-12 md:w-20 md:h-20 mb-4" />
-                                                        <p className="font-black uppercase tracking-widest text-[9px] md:text-xs text-center">Sin Multimedia</p>
-                                                    </div>
-                                                )}
+                                                {activeProject?.imageUrl ? <img src={activeProject.imageUrl} className="w-full h-full object-contain" alt="Proyecto" /> : <div className="flex flex-col items-center opacity-20"><ImageIcon className="w-12 h-12 md:w-20 md:h-20 mb-4" /><p className="font-black uppercase tracking-widest text-[9px] md:text-xs text-center">Sin Multimedia</p></div>}
                                             </div>
                                         </div>
-
-                                        {/* Phases Panel Móvil */}
                                         <div className="lg:col-span-4 flex flex-col gap-6">
                                             <div className="bg-slate-800 rounded-[1.5rem] md:rounded-[2.5rem] p-6 md:p-10 text-white shadow-xl flex-1 flex flex-col">
-                                                <div className="flex justify-between items-center mb-6">
-                                                    <h4 className="text-[9px] md:text-[10px] font-black text-teal-400 uppercase tracking-widest">Avance por Fase</h4>
-                                                </div>
+                                                <div className="flex justify-between items-center mb-6"><h4 className="text-[9px] md:text-[10px] font-black text-teal-400 uppercase tracking-widest">Avance por Fase</h4></div>
                                                 <div className="space-y-4 max-h-[300px] overflow-y-auto custom-scroll pr-2 md:pr-4">
                                                     {(phaseFilter ? uniquePhases.filter(ph => ph === phaseFilter) : uniquePhases).map(ph => {
                                                         const phPieces = pieces.filter(p => (p.lote||"").toString() === ph && !p.eliminada);
                                                         const montado = phPieces.filter(p => isStateComplete(p.montado)).length;
                                                         const progress = phPieces.length > 0 ? (montado / phPieces.length) * 100 : 0;
-                                                        return (
-                                                            <div key={ph} className="p-4 md:p-5 bg-white/5 rounded-2xl border border-white/5">
-                                                                <div className="flex justify-between items-center mb-2">
-                                                                    <span className="text-xs md:text-sm font-black uppercase">Fase {ph}</span>
-                                                                    <span className="text-teal-400 font-bold text-xs">{progress.toFixed(0)}%</span>
-                                                                </div>
-                                                                <div className="h-1.5 w-full bg-white/10 rounded-full overflow-hidden">
-                                                                    <div className="h-full bg-teal-500 rounded-full" style={{ width: `${progress}%` }} />
-                                                                </div>
-                                                            </div>
-                                                        );
+                                                        return (<div key={ph} className="p-4 md:p-5 bg-white/5 rounded-2xl border border-white/5"><div className="flex justify-between items-center mb-2"><span className="text-xs md:text-sm font-black uppercase">Fase {ph}</span><span className="text-teal-400 font-bold text-xs">{progress.toFixed(0)}%</span></div><div className="h-1.5 w-full bg-white/10 rounded-full overflow-hidden"><div className="h-full bg-teal-500 rounded-full" style={{ width: `${progress}%` }} /></div></div>);
                                                     })}
                                                 </div>
                                             </div>
                                         </div>
                                     </div>
 
-                                    {/* Stats Grid Responsivo */}
                                     <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
                                         {[
                                             { label: "En Tránsito", val: stats.despachadoSinMontar, icon: Truck, color: "amber" },
@@ -922,16 +988,13 @@ export default function App() {
                                             { label: "Montado", val: stats.completado, icon: Ship, color: "teal" }
                                         ].map(card => (
                                             <div key={card.label} className="bg-white p-5 md:p-8 rounded-[1.5rem] md:rounded-[2rem] border border-slate-200 shadow-sm flex flex-col items-center text-center">
-                                                <div className={`p-3 md:p-4 w-10 h-10 md:w-14 md:h-14 rounded-xl md:rounded-2xl mb-3 md:mb-6 flex items-center justify-center bg-${card.color}-50 text-${card.color}-600`}>
-                                                    <card.icon className="w-5 h-5 md:w-6 md:h-6" />
-                                                </div>
+                                                <div className={`p-3 md:p-4 w-10 h-10 md:w-14 md:h-14 rounded-xl md:rounded-2xl mb-3 md:mb-6 flex items-center justify-center bg-${card.color}-50 text-${card.color}-600`}><card.icon className="w-5 h-5 md:w-6 md:h-6" /></div>
                                                 <p className="text-xl md:text-4xl font-black text-slate-900 tracking-tighter">{card.val}</p>
                                                 <p className="text-[8px] md:text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1 md:mt-2">{card.label}</p>
                                             </div>
                                         ))}
                                     </div>
 
-                                    {/* Gráficos con Ref para PDF */}
                                     <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 md:gap-10">
                                         <div ref={chart1Ref} className="bg-white rounded-[1.5rem] md:rounded-[2.5rem] p-6 md:p-12 border border-slate-200 shadow-sm h-[350px] md:h-[500px] flex flex-col">
                                             <h3 className="text-sm md:text-xl font-black text-slate-900 tracking-tight uppercase mb-6 md:mb-10">Tonelaje por Etapa</h3>
@@ -942,9 +1005,7 @@ export default function App() {
                                                         <XAxis dataKey="name" axisLine={false} tickLine={false} style={{ fontSize: '8px' }} interval={0} angle={-45} textAnchor="end" height={50} />
                                                         <YAxis hide axisLine={false} tickLine={false} />
                                                         <Bar dataKey="kg" radius={[6, 6, 0, 0]} barSize={20}>
-                                                            {STATES.map((s, index) => (
-                                                                <Cell key={`cell-${index}`} fill={s.color} />
-                                                            ))}
+                                                            {STATES.map((s, index) => <Cell key={`cell-${index}`} fill={s.color} />)}
                                                             <LabelList dataKey="kg" position="top" formatter={(v: number) => `${(v/1000).toFixed(1)}t`} style={{ fontSize: '8px', fontWeight: '800' }} />
                                                         </Bar>
                                                         <Line type="monotone" dataKey="kg" stroke="#334155" strokeWidth={2} dot={{ r: 4, fill: '#334155' }} />
@@ -960,9 +1021,7 @@ export default function App() {
                                                         <XAxis type="number" hide />
                                                         <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} width={80} style={{ fontSize: '8px' }} />
                                                         <Bar dataKey="count" radius={[0, 6, 6, 0]} barSize={15}>
-                                                            {STATES.map((s, index) => (
-                                                                <Cell key={`cell-${index}`} fill={s.color} fillOpacity={0.2} stroke={s.color} strokeWidth={2} />
-                                                            ))}
+                                                            {STATES.map((s, index) => <Cell key={`cell-${index}`} fill={s.color} fillOpacity={0.2} stroke={s.color} strokeWidth={2} />)}
                                                             <LabelList dataKey="count" position="right" style={{ fontSize: '9px', fontWeight: '800' }} />
                                                         </Bar>
                                                     </BarChart>
@@ -977,149 +1036,62 @@ export default function App() {
                 </div>
             </main>
 
-            {/* View Switcher FAB Responsivo */}
-            <button 
-                onClick={() => setActiveView(activeView === 'pieces' ? 'charts' : 'pieces')} 
-                className="fixed bottom-6 right-6 w-14 h-14 md:w-16 md:h-16 bg-slate-700 text-white rounded-2xl md:rounded-[1.8rem] shadow-2xl flex items-center justify-center hover:scale-110 active:scale-90 transition-all z-[80] border-4 border-white"
-            >
+            <button onClick={() => setActiveView(activeView === 'pieces' ? 'charts' : 'pieces')} className="fixed bottom-6 right-6 w-14 h-14 md:w-16 md:h-16 bg-slate-700 text-white rounded-2xl md:rounded-[1.8rem] shadow-2xl flex items-center justify-center hover:scale-110 active:scale-90 transition-all z-[80] border-4 border-white">
                 {activeView === 'pieces' ? <Activity className="w-6 h-6 md:w-7 md:h-7" /> : <Boxes className="w-6 h-6 md:w-7 md:h-7" />}
             </button>
 
-            {/* Selection FAB Móvil */}
             {selectedPieces.size > 0 && (
                 <div className="fixed bottom-24 left-4 right-4 md:bottom-10 md:left-1/2 md:-translate-x-1/2 md:right-auto z-[80] animate-in slide-in-from-bottom-10">
                     <div className="bg-slate-700 text-white px-6 md:px-10 py-4 md:py-5 rounded-2xl md:rounded-[2.5rem] shadow-2xl flex items-center justify-between md:gap-10 border border-white/10 backdrop-blur-md">
-                        <div className="flex flex-col md:flex-row md:items-center md:gap-2">
-                            <span className="font-black text-lg md:text-xl leading-none">{selectedPieces.size}</span>
-                            <span className="text-[7px] md:text-[10px] opacity-40 uppercase tracking-widest font-bold">Piezas</span>
-                        </div>
+                        <div className="flex flex-col md:flex-row md:items-center md:gap-2"><span className="font-black text-lg md:text-xl leading-none">{selectedPieces.size}</span><span className="text-[7px] md:text-[10px] opacity-40 uppercase tracking-widest font-bold">Piezas</span></div>
                         <div className="hidden md:block w-px h-10 bg-white/10" />
-                        <div className="flex gap-2">
-                            <button onClick={() => setModals(m => ({...m, massPhase: true}))} className="px-4 md:px-8 py-2 md:py-3 bg-white text-slate-800 rounded-lg md:rounded-xl text-[8px] md:text-[10px] font-black uppercase shadow-xl hover:scale-105 active:scale-95 transition-all">Fase</button>
-                            <button onClick={() => setSelectedPieces(new Set())} className="px-4 md:px-8 py-2 md:py-3 bg-white/10 hover:bg-white/20 rounded-lg md:rounded-xl text-[8px] md:text-[10px] font-black uppercase transition-all">Limpiar</button>
-                        </div>
+                        <div className="flex gap-2"><button onClick={() => setModals(m => ({...m, massPhase: true}))} className="px-4 md:px-8 py-2 md:py-3 bg-white text-slate-800 rounded-lg md:rounded-xl text-[8px] md:text-[10px] font-black uppercase shadow-xl hover:scale-105 active:scale-95 transition-all">Fase</button><button onClick={() => setSelectedPieces(new Set())} className="px-4 md:px-8 py-2 md:py-3 bg-white/10 hover:bg-white/20 rounded-lg md:rounded-xl text-[8px] md:text-[10px] font-black uppercase transition-all">Limpiar</button></div>
                     </div>
                 </div>
             )}
 
-            {/* MODAL: PERFIL */}
             <Modal isOpen={modals.profile} onClose={() => setModals(m => ({ ...m, profile: false }))} title="Perfil Usuario">
                 <form onSubmit={handleUpdateProfile} className="space-y-6">
                     <div className="flex flex-col items-center mb-6">
-                        <div 
-                            onClick={() => avatarRef.current?.click()}
-                            className="relative w-24 h-24 rounded-[1.5rem] bg-slate-100 border-2 border-dashed border-slate-300 flex items-center justify-center cursor-pointer hover:border-teal-400 group overflow-hidden transition-all"
-                        >
-                            {profileEditData.avatarUrl ? (
-                                <img src={profileEditData.avatarUrl} className="w-full h-full object-cover" alt="Avatar" />
-                            ) : (
-                                <UserCircle className="w-10 h-10 text-slate-300 group-hover:text-teal-400" />
-                            )}
-                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                                <Camera className="text-white w-5 h-5" />
-                            </div>
+                        <div onClick={() => avatarRef.current?.click()} className="relative w-24 h-24 rounded-[1.5rem] bg-slate-100 border-2 border-dashed border-slate-300 flex items-center justify-center cursor-pointer hover:border-teal-400 group overflow-hidden transition-all">
+                            {profileEditData.avatarUrl ? <img src={profileEditData.avatarUrl} className="w-full h-full object-cover" alt="Avatar" /> : <UserCircle className="w-10 h-10 text-slate-300 group-hover:text-teal-400" />}
+                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity"><Camera className="text-white w-5 h-5" /></div>
                             <input type="file" ref={avatarRef} className="hidden" accept="image/*" onChange={handleAvatarUpload} />
                         </div>
                     </div>
-
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                            <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Nombre</label>
-                            <input 
-                                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-5 py-3 text-xs font-bold text-slate-800 outline-none"
-                                value={profileEditData.nombre || ''}
-                                onChange={e => setProfileEditData(prev => ({ ...prev, nombre: e.target.value }))}
-                                required
-                            />
-                        </div>
-                        <div className="space-y-2">
-                            <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Apellido</label>
-                            <input 
-                                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-5 py-3 text-xs font-bold text-slate-800 outline-none"
-                                value={profileEditData.apellido || ''}
-                                onChange={e => setProfileEditData(prev => ({ ...prev, apellido: e.target.value }))}
-                                required
-                            />
-                        </div>
+                        <div className="space-y-2"><label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Nombre</label><input className="w-full bg-slate-50 border border-slate-200 rounded-xl px-5 py-3 text-xs font-bold text-slate-800 outline-none" value={profileEditData.nombre || ''} onChange={e => setProfileEditData(prev => ({ ...prev, nombre: e.target.value }))} required /></div>
+                        <div className="space-y-2"><label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Apellido</label><input className="w-full bg-slate-50 border border-slate-200 rounded-xl px-5 py-3 text-xs font-bold text-slate-800 outline-none" value={profileEditData.apellido || ''} onChange={e => setProfileEditData(prev => ({ ...prev, apellido: e.target.value }))} required /></div>
                     </div>
-
                     <div className="p-6 bg-slate-800 rounded-2xl space-y-4">
                         <label className="text-[9px] font-black text-teal-400 uppercase tracking-widest block">Área de Desempeño</label>
-                        <select 
-                            className="w-full bg-slate-700 border border-white/10 rounded-xl px-5 py-3 text-xs font-black text-white uppercase outline-none"
-                            value={profileEditData.area || ''}
-                            onChange={e => setProfileEditData(prev => ({ ...prev, area: e.target.value }))}
-                            required
-                        >
+                        <select className="w-full bg-slate-700 border border-white/10 rounded-xl px-5 py-3 text-xs font-black text-white uppercase outline-none" value={profileEditData.area || ''} onChange={e => setProfileEditData(prev => ({ ...prev, area: e.target.value }))} required>
                             <option value="" disabled>Seleccionar Área...</option>
                             {AREAS.map(area => <option key={area} value={area}>{area}</option>)}
                         </select>
                     </div>
-
-                    <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
-                        <Button variant="ghost" onClick={() => setModals(m => ({ ...m, profile: false }))}>Cancelar</Button>
-                        <Button type="submit" loading={processing} className="flex-1 md:flex-none">Guardar</Button>
-                    </div>
+                    <div className="flex justify-end gap-3 pt-4 border-t border-slate-100"><Button variant="ghost" onClick={() => setModals(m => ({ ...m, profile: false }))}>Cancelar</Button><Button type="submit" loading={processing} className="flex-1 md:flex-none">Guardar</Button></div>
                 </form>
             </Modal>
 
-            {/* MODALS: COMENTARIOS, FASE, HISTORIAL (Optimizado tamaño táctil) */}
             <Modal isOpen={modals.comment} onClose={() => { setModals(m => ({...m, comment: false})); setCommentTarget(null); }} title="Observaciones">
-                <div className="space-y-6">
-                    <textarea 
-                        className="w-full min-h-[120px] bg-slate-50 border border-slate-200 rounded-xl p-4 text-xs font-bold text-slate-800 outline-none focus:border-teal-500"
-                        placeholder="Nota interna..."
-                        value={commentTarget?.text || ''}
-                        onChange={e => setCommentTarget(prev => prev ? {...prev, text: e.target.value} : null)}
-                    />
-                    <Button onClick={handleSaveComment} loading={processing} className="w-full">Guardar Nota</Button>
-                </div>
+                <div className="space-y-6"><textarea className="w-full min-h-[120px] bg-slate-50 border border-slate-200 rounded-xl p-4 text-xs font-bold text-slate-800 outline-none focus:border-teal-500" placeholder="Nota interna..." value={commentTarget?.text || ''} onChange={e => setCommentTarget(prev => prev ? {...prev, text: e.target.value} : null)} /><Button onClick={handleSaveComment} loading={processing} className="w-full">Guardar Nota</Button></div>
             </Modal>
 
             <Modal isOpen={modals.massPhase} onClose={() => setModals(m => ({...m, massPhase: false}))} title="Cambio de Fase">
-                <div className="space-y-6">
-                    <input 
-                        placeholder="Nueva Fase..." 
-                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-5 py-3 text-sm font-black text-slate-800 outline-none"
-                        id="massPhaseInput"
-                    />
-                    <Button onClick={() => {
-                        const val = (document.getElementById('massPhaseInput') as HTMLInputElement).value;
-                        handleMassPhase(val);
-                    }} loading={processing} className="w-full">Confirmar</Button>
-                </div>
+                <div className="space-y-6"><input placeholder="Nueva Fase..." className="w-full bg-slate-50 border border-slate-200 rounded-xl px-5 py-3 text-sm font-black text-slate-800 outline-none" id="massPhaseInput" /><Button onClick={() => { const val = (document.getElementById('massPhaseInput') as HTMLInputElement).value; handleMassPhase(val); }} loading={processing} className="w-full">Confirmar</Button></div>
             </Modal>
 
             <Modal isOpen={modals.pieceHistory} onClose={() => { setModals(m => ({...m, pieceHistory: false})); setHistoryTargetId(null); }} title={`Bitácora: ${historyTarget?.conjunto || ''}`}>
                 <div className="space-y-4">
-                    {!historyTarget ? (
-                        <p className="text-center py-10 font-bold opacity-30">Sin datos</p>
-                    ) : (
-                        STATES.map(s => {
-                            const audit = historyTarget[s.key] as AuditStatus;
-                            const done = isStateComplete(audit);
-                            return (
-                                <div key={s.key} className={`p-4 rounded-xl border flex items-center justify-between transition-all ${done ? 'bg-white border-slate-200 shadow-sm' : 'bg-slate-50 border-slate-100 opacity-40'}`}>
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-8 h-8 rounded-lg flex items-center justify-center text-white" style={{ backgroundColor: done ? s.color : '#cbd5e1' }}>
-                                            {done ? <CheckCircle2 className="w-4 h-4" /> : <Clock className="w-4 h-4" />}
-                                        </div>
-                                        <p className="text-[10px] font-black text-slate-800 uppercase">{s.label}</p>
-                                    </div>
-                                    {done && (
-                                        <div className="text-right">
-                                            <p className="text-[8px] font-black text-slate-400 uppercase">{audit.usuarioNombre || 'Sistema'}</p>
-                                            <p className="text-[7px] font-bold text-slate-300">{formatTime(audit.fecha)}</p>
-                                        </div>
-                                    )}
-                                </div>
-                            );
-                        })
-                    )}
+                    {!historyTarget ? <p className="text-center py-10 font-bold opacity-30">Sin datos</p> : STATES.map(s => {
+                        const audit = historyTarget[s.key] as AuditStatus;
+                        const done = isStateComplete(audit);
+                        return (<div key={s.key} className={`p-4 rounded-xl border flex items-center justify-between transition-all ${done ? 'bg-white border-slate-200 shadow-sm' : 'bg-slate-50 border-slate-100 opacity-40'}`}><div className="flex items-center gap-3"><div className="w-8 h-8 rounded-lg flex items-center justify-center text-white" style={{ backgroundColor: done ? s.color : '#cbd5e1' }}>{done ? <CheckCircle2 className="w-4 h-4" /> : <Clock className="w-4 h-4" />}</div><p className="text-[10px] font-black text-slate-800 uppercase">{s.label}</p></div>{done && (<div className="text-right"><p className="text-[8px] font-black text-slate-400 uppercase">{audit.usuarioNombre || 'Sistema'}</p><p className="text-[7px] font-bold text-slate-300">{formatTime(audit.fecha)}</p></div>)}</div>);
+                    })}
                 </div>
             </Modal>
 
-            {/* GESTIÓN DE OBRAS RESPONSIVO */}
             <Modal isOpen={modals.projects} onClose={() => setModals(m => ({...m, projects: false}))} title="Obras Solana" size="lg">
                 <div className="space-y-8">
                     {isOT && (
@@ -1128,33 +1100,18 @@ export default function App() {
                             const name = (e.target as any).pname.value;
                             if (!name) return;
                             setProcessing(true);
-                            addDoc(collection(db, `artifacts/${appId}/public/data/projects`), { name: name.toUpperCase(), createdAt: serverTimestamp(), archived: false })
-                                .then(() => { (e.target as any).reset(); setProcessing(false); })
-                                .catch(() => setProcessing(false));
-                        }} className="flex flex-col md:flex-row gap-3">
-                            <input name="pname" placeholder="NOMBRE DE LA OBRA..." className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-5 py-3 text-xs font-bold uppercase outline-none" required />
-                            <Button type="submit" loading={processing} className="w-full md:w-auto px-10">Crear Obra</Button>
-                        </form>
+                            addDoc(collection(db, `artifacts/${appId}/public/data/projects`), { name: name.toUpperCase(), createdAt: serverTimestamp(), archived: false }).then(() => { (e.target as any).reset(); setProcessing(false); }).catch(() => setProcessing(false));
+                        }} className="flex flex-col md:flex-row gap-3"><input name="pname" placeholder="NOMBRE DE LA OBRA..." className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-5 py-3 text-xs font-bold uppercase outline-none" required /><Button type="submit" loading={processing} className="w-full md:w-auto px-10">Crear Obra</Button></form>
                     )}
                     <div className="space-y-3 max-h-[50vh] overflow-y-auto custom-scroll pr-2">
-                        {projects.map(p => (
-                            <div key={p.id} className={`flex items-center justify-between p-4 md:p-6 rounded-2xl border transition-all ${p.archived ? 'bg-slate-50 opacity-40 border-slate-100' : 'bg-white border-slate-200 hover:shadow-lg'}`}>
-                                <div className="flex items-center gap-4 truncate">
-                                    <Building className="w-5 h-5 text-slate-300 flex-none" />
-                                    <div className="truncate">
-                                        <h4 className="font-black text-slate-900 tracking-tight text-sm uppercase truncate">{p.name}</h4>
-                                        <p className="text-[8px] font-bold text-slate-400 uppercase mt-1">ID: {p.id.slice(0,8)}</p>
-                                    </div>
-                                </div>
-                                <div className="flex gap-2">
-                                    {!p.archived && <button onClick={() => { setActiveProjectId(p.id); setModals(m => ({...m, projects: false})); }} className="px-4 py-2 bg-teal-50 text-teal-700 rounded-lg text-[9px] font-black uppercase border border-teal-100 active:scale-95 transition-all">Abrir</button>}
-                                    {isOT && (
-                                        <button onClick={() => confirm("Eliminar?") && deleteDoc(doc(db, `artifacts/${appId}/public/data/projects`, p.id))} className="p-2 text-slate-200 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
-                                    )}
-                                </div>
-                            </div>
-                        ))}
+                        {projects.map(p => (<div key={p.id} className={`flex items-center justify-between p-4 md:p-6 rounded-2xl border transition-all ${p.archived ? 'bg-slate-50 opacity-40 border-slate-100' : 'bg-white border-slate-200 hover:shadow-lg'}`}><div className="flex items-center gap-4 truncate"><Building className="w-5 h-5 text-slate-300 flex-none" /><div className="truncate"><h4 className="font-black text-slate-900 tracking-tight text-sm uppercase truncate">{p.name}</h4><p className="text-[8px] font-bold text-slate-400 uppercase mt-1">ID: {p.id.slice(0,8)}</p></div></div><div className="flex gap-2">{!p.archived && <button onClick={() => { setActiveProjectId(p.id); setModals(m => ({...m, projects: false})); }} className="px-4 py-2 bg-teal-50 text-teal-700 rounded-lg text-[9px] font-black uppercase border border-teal-100 active:scale-95 transition-all">Abrir</button>}{isOT && (<button onClick={() => confirm("Eliminar?") && deleteDoc(doc(db, `artifacts/${appId}/public/data/projects`, p.id))} className="p-2 text-slate-200 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>)}</div></div>))}
                     </div>
+                </div>
+            </Modal>
+
+            <Modal isOpen={modals.logs} onClose={() => setModals(m => ({...m, logs: false}))} title="Historial Operativo" size="lg">
+                <div className="space-y-4 max-h-[65vh] overflow-y-auto custom-scroll pr-4 py-2">
+                    {syncLogs.length === 0 ? <div className="text-center py-20 text-slate-400 font-bold italic">No hay registros recientes</div> : syncLogs.map(log => (<div key={log.id} className="p-6 bg-white rounded-[2rem] border border-slate-200 shadow-sm"><div className="flex justify-between items-center mb-4"><div className="flex items-center gap-4"><div className="p-3 bg-slate-50 rounded-xl text-slate-700"><ClipboardList className="w-5 h-5" /></div><div><p className="font-black text-slate-900 text-base uppercase">{log.user}</p><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">{formatTime(log.date)}</p></div></div>{log.added > 0 && <span className="bg-emerald-50 text-emerald-600 px-4 py-1.5 rounded-full text-[10px] font-black border border-emerald-100">+{log.added} Piezas</span>}</div><div className="px-5 py-4 bg-slate-50 rounded-xl border border-slate-100 text-xs font-bold text-slate-600 leading-relaxed italic">"{log.addedDetails}"</div></div>))}
                 </div>
             </Modal>
 
