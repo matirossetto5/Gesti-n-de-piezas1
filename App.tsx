@@ -13,7 +13,7 @@ import {
     doc, onSnapshot, orderBy, limit, writeBatch, serverTimestamp,
     deleteDoc
 } from 'firebase/firestore';
-import { auth, db, appId } from './firebase';
+import { auth, db, appId, isConfigured } from './firebase';
 import {
     UserProfile, Project, Piece, SyncLog,
     AREAS, STATES, AREA_PERMISSIONS, AuditStatus
@@ -158,6 +158,11 @@ export default function App() {
 
     // Auth & Data effects
     useEffect(() => {
+        if (!isConfigured) {
+            console.error('Firebase not configured with environment variables');
+            setAuthLoading(false);
+            return;
+        }
         return onAuthStateChanged(auth, async (u) => {
             setUser(u);
             if (u) {
@@ -810,6 +815,34 @@ export default function App() {
             setProcessing(false);
         }
     };
+
+    if (!isConfigured) return (
+        <div className="h-screen w-screen flex flex-col items-center justify-center bg-red-50 p-6">
+            <AlertCircle className="w-12 h-12 text-red-500 mb-4" />
+            <div className="max-w-md text-center">
+                <h1 className="text-xl font-black text-red-700 uppercase tracking-widest mb-3">
+                    Configuración No Detectada
+                </h1>
+                <p className="text-sm text-red-600 mb-4 font-medium">
+                    Firebase no está configurado correctamente. Las variables de entorno VITE_FIREBASE_* no se encuentran.
+                </p>
+                <div className="bg-white rounded-xl p-4 text-left text-xs font-mono text-slate-700 border border-red-200 mb-6">
+                    <p className="font-bold text-red-600 mb-2">Verifica que en Netlify estén configuradas:</p>
+                    <ul className="space-y-1 text-slate-600">
+                        <li>✓ VITE_FIREBASE_API_KEY</li>
+                        <li>✓ VITE_FIREBASE_AUTH_DOMAIN</li>
+                        <li>✓ VITE_FIREBASE_PROJECT_ID</li>
+                        <li>✓ VITE_FIREBASE_STORAGE_BUCKET</li>
+                        <li>✓ VITE_FIREBASE_MESSAGING_SENDER_ID</li>
+                        <li>✓ VITE_FIREBASE_APP_ID</li>
+                    </ul>
+                </div>
+                <p className="text-xs text-slate-500">
+                    Consulta la consola del navegador (F12) para más detalles
+                </p>
+            </div>
+        </div>
+    );
 
     if (authLoading) return (
         <div className="h-screen w-screen flex flex-col items-center justify-center bg-white">
