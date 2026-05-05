@@ -164,31 +164,35 @@ export default function App() {
             return;
         }
         // Safety timeout: if onAuthStateChanged never fires (network issues, bad config),
-        // stop the loading spinner after 10 seconds and show the login form.
+        // stop the loading spinner after 5 seconds and show the login form.
         const timeout = setTimeout(() => {
-            console.warn('Auth timeout: onAuthStateChanged did not fire within 10 seconds');
+            console.warn('Auth timeout: Firebase no respondió en 5 segundos');
             setAuthLoading(false);
             setModals(m => ({ ...m, login: true }));
-        }, 10000);
+        }, 5000);
 
         const unsubscribe = onAuthStateChanged(auth, async (u) => {
             clearTimeout(timeout);
             setUser(u);
             if (u) {
-                const q = query(collection(db, `artifacts/${appId}/public/data/users`), where("authUid", "==", u.uid), limit(1));
-                const snap = await getDocs(q);
-                if (!snap.empty) {
-                    const data = { id: snap.docs[0].id, ...snap.docs[0].data() } as UserProfile;
-                    setUserProfile(data);
-                    setProfileEditData(data);
-                } else {
-                    console.log("Perfil de usuario no encontrado en Firestore, esperando creación.");
-                }
+                // Unblock the UI immediately — don't wait for Firestore
                 setModals(m => ({ ...m, login: false }));
+                setAuthLoading(false);
+                try {
+                    const q = query(collection(db, `artifacts/${appId}/public/data/users`), where("authUid", "==", u.uid), limit(1));
+                    const snap = await getDocs(q);
+                    if (!snap.empty) {
+                        const data = { id: snap.docs[0].id, ...snap.docs[0].data() } as UserProfile;
+                        setUserProfile(data);
+                        setProfileEditData(data);
+                    }
+                } catch (e) {
+                    console.warn('No se pudo cargar el perfil de usuario:', e);
+                }
             } else {
                 setModals(m => ({ ...m, login: true }));
+                setAuthLoading(false);
             }
-            setAuthLoading(false);
         });
 
         return () => {
