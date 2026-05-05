@@ -1,6 +1,6 @@
 import { initializeApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+import { getAuth, Auth } from "firebase/auth";
+import { getFirestore, Firestore } from "firebase/firestore";
 
 // Configuration from environment variables (secure)
 const firebaseConfig = {
@@ -17,11 +17,16 @@ const configToUse = (typeof (window as any).__firebase_config !== 'undefined')
   ? JSON.parse((window as any).__firebase_config)
   : firebaseConfig;
 
+// Declare exports at module level
+let auth: Auth;
+let db: Firestore;
+let appId: string;
+
 try {
   const app = initializeApp(configToUse);
-  export const auth = getAuth(app);
-  export const db = getFirestore(app);
-  export const appId = (typeof (window as any).__app_id !== 'undefined')
+  auth = getAuth(app);
+  db = getFirestore(app);
+  appId = (typeof (window as any).__app_id !== 'undefined')
     ? (window as any).__app_id
     : (configToUse.projectId || 'default');
   console.log('✅ Firebase initialized successfully');
@@ -29,3 +34,5 @@ try {
   console.error('❌ Firebase initialization error:', error);
   throw error;
 }
+
+export { auth, db, appId };
