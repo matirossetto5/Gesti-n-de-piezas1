@@ -14,11 +14,12 @@ import {
     deleteDoc
 } from 'firebase/firestore';
 import { auth, db, appId } from './firebase';
-import { 
+import {
     UserProfile, Project, Piece, SyncLog,
-    AREAS, STATES, AREA_PERMISSIONS, AuditStatus 
+    AREAS, STATES, AREA_PERMISSIONS, AuditStatus
 } from './types';
 import { formatTime, readExcel, isStateComplete } from './utils';
+import { ValidationService } from './services/validation';
 import { 
     AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
     BarChart, Bar, Cell, Legend, ComposedChart, Line, LabelList
@@ -271,12 +272,34 @@ export default function App() {
         e.preventDefault();
         setProcessing(true);
         setAuthMessage(null);
-        const email = (e.target as any).email.value;
+        const email = (e.target as any).email.value?.trim() || '';
         const pass = (e.target as any).pass.value;
+
+        // Validate inputs
+        const emailValidation = ValidationService.validateEmail(email);
+        if (!emailValidation.valid) {
+            setAuthMessage({ text: emailValidation.error || "Email inválido", type: 'error' });
+            setProcessing(false);
+            return;
+        }
+
+        const passwordValidation = ValidationService.validatePassword(pass);
+        if (!passwordValidation.valid) {
+            setAuthMessage({ text: passwordValidation.error || "Contraseña inválida", type: 'error' });
+            setProcessing(false);
+            return;
+        }
+
         try {
             await signInWithEmailAndPassword(auth, email, pass);
         } catch (e: any) {
-            setAuthMessage({ text: "CREDENCIALES INVÁLIDAS", type: 'error' });
+            const errorMap: Record<string, string> = {
+                'auth/user-not-found': 'El correo no está registrado',
+                'auth/wrong-password': 'Contraseña incorrecta',
+                'auth/invalid-email': 'Email inválido',
+                'auth/user-disabled': 'Cuenta desactivada'
+            };
+            setAuthMessage({ text: errorMap[e.code] || "Credenciales inválidas", type: 'error' });
         } finally {
             setProcessing(false);
         }
@@ -286,26 +309,60 @@ export default function App() {
         e.preventDefault();
         setProcessing(true);
         setAuthMessage(null);
-        const email = (e.target as any).email.value;
+        const email = (e.target as any).email.value?.trim() || '';
         const pass = (e.target as any).pass.value;
-        const nombre = (e.target as any).nombre.value;
-        const apellido = (e.target as any).apellido.value;
+        const nombre = (e.target as any).nombre.value?.trim() || '';
+        const apellido = (e.target as any).apellido.value?.trim() || '';
+
+        // Validate all inputs
+        const emailValidation = ValidationService.validateEmail(email);
+        if (!emailValidation.valid) {
+            setAuthMessage({ text: emailValidation.error || "Email inválido", type: 'error' });
+            setProcessing(false);
+            return;
+        }
+
+        const passwordValidation = ValidationService.validatePassword(pass);
+        if (!passwordValidation.valid) {
+            setAuthMessage({ text: passwordValidation.error || "Contraseña inválida", type: 'error' });
+            setProcessing(false);
+            return;
+        }
+
+        const nombreValidation = ValidationService.validateName(nombre);
+        if (!nombreValidation.valid) {
+            setAuthMessage({ text: nombreValidation.error || "Nombre inválido", type: 'error' });
+            setProcessing(false);
+            return;
+        }
+
+        const apellidoValidation = ValidationService.validateName(apellido);
+        if (!apellidoValidation.valid) {
+            setAuthMessage({ text: apellidoValidation.error || "Apellido inválido", type: 'error' });
+            setProcessing(false);
+            return;
+        }
 
         try {
             const userCredential = await createUserWithEmailAndPassword(auth, email, pass);
-            // Crear el perfil en Firestore
+            // Create user profile with sanitized data
             const newUserProfile = {
                 authUid: userCredential.user.uid,
-                email,
-                nombre: nombre.toUpperCase(),
-                apellido: apellido.toUpperCase(),
+                email: ValidationService.sanitizeInput(email),
+                nombre: ValidationService.sanitizeInput(nombre.toUpperCase()),
+                apellido: ValidationService.sanitizeInput(apellido.toUpperCase()),
                 area: "Sin Área",
                 createdAt: serverTimestamp()
             };
             await addDoc(collection(db, `artifacts/${appId}/public/data/users`), newUserProfile);
-            // El useEffect de Auth se encargará de cargar el perfil
+            setAuthMessage({ text: "Cuenta creada exitosamente", type: 'success' });
         } catch (e: any) {
-            setAuthMessage({ text: e.message.includes("email-already") ? "EL CORREO YA ESTÁ REGISTRADO" : "ERROR AL CREAR CUENTA", type: 'error' });
+            const errorMap: Record<string, string> = {
+                'auth/email-already-in-use': 'El correo ya está registrado',
+                'auth/weak-password': 'La contraseña es muy débil',
+                'auth/invalid-email': 'Email inválido'
+            };
+            setAuthMessage({ text: errorMap[e.code] || "Error al crear cuenta", type: 'error' });
         } finally {
             setProcessing(false);
         }
@@ -315,12 +372,25 @@ export default function App() {
         e.preventDefault();
         setProcessing(true);
         setAuthMessage(null);
-        const email = (e.target as any).email.value;
+        const email = (e.target as any).email.value?.trim() || '';
+
+        // Validate email
+        const emailValidation = ValidationService.validateEmail(email);
+        if (!emailValidation.valid) {
+            setAuthMessage({ text: emailValidation.error || "Email inválido", type: 'error' });
+            setProcessing(false);
+            return;
+        }
+
         try {
             await sendPasswordResetEmail(auth, email);
-            setAuthMessage({ text: "ENLACE ENVIADO AL CORREO", type: 'success' });
+            setAuthMessage({ text: "Enlace de recuperación enviado al correo", type: 'success' });
         } catch (e: any) {
-            setAuthMessage({ text: "EL CORREO NO EXISTE", type: 'error' });
+            const errorMap: Record<string, string> = {
+                'auth/user-not-found': 'El correo no está registrado',
+                'auth/invalid-email': 'Email inválido'
+            };
+            setAuthMessage({ text: errorMap[e.code] || "Error al enviar enlace", type: 'error' });
         } finally {
             setProcessing(false);
         }
@@ -361,14 +431,27 @@ export default function App() {
 
     const handleSaveComment = async () => {
         if (!commentTarget || !activeProjectId) return;
+
+        // Validate comment length
+        const comment = (commentTarget.text || '').trim();
+        if (comment.length > 1000) {
+            alert("La nota no puede exceder 1000 caracteres");
+            return;
+        }
+
         setProcessing(true);
         try {
             const pieceRef = doc(db, `artifacts/${appId}/public/data/projects/${activeProjectId}/pieces`, commentTarget.id);
-            await updateDoc(pieceRef, { comentario: commentTarget.text });
+            // Sanitize comment before saving
+            await updateDoc(pieceRef, {
+                comentario: ValidationService.sanitizeInput(comment)
+            });
             setModals(m => ({ ...m, comment: false }));
             setCommentTarget(null);
+            alert("✅ Nota guardada correctamente");
         } catch (err: any) {
-            alert("Error al guardar nota: " + err.message);
+            console.error('Comment save error:', err);
+            alert("❌ Error al guardar nota: " + err.message);
         } finally {
             setProcessing(false);
         }
@@ -401,45 +484,95 @@ export default function App() {
     const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file || !activeProjectId) return;
-        
+
+        // Validate file
+        const maxFileSize = 10 * 1024 * 1024; // 10MB
+        if (file.size > maxFileSize) {
+            alert("El archivo es demasiado grande (máximo 10MB)");
+            return;
+        }
+
+        const validTypes = ['application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'text/csv'];
+        if (!validTypes.includes(file.type) && !file.name.match(/\.(xlsx?|csv)$/i)) {
+            alert("Solo se permiten archivos Excel o CSV");
+            return;
+        }
+
         setProcessing(true);
         try {
             const data = await readExcel(file);
             const totalItems = data.length;
+
+            // Validate each piece
+            const validationErrors: { index: number; piece: any; errors: any[] }[] = [];
+            const validPieces: any[] = [];
+
+            data.forEach((item, index) => {
+                const validation = ValidationService.validatePieceData(item);
+                if (!validation.valid) {
+                    validationErrors.push({ index, piece: item, errors: validation.errors });
+                } else {
+                    // Sanitize piece data before saving
+                    validPieces.push({
+                        conjunto: ValidationService.sanitizeInput(item.conjunto),
+                        numero: Math.max(1, parseInt(item.numero) || 1),
+                        area: Math.max(0, parseFloat(item.area) || 0),
+                        peso: Math.max(0, parseFloat(item.peso) || 0),
+                        lote: item.lote || '',
+                        eliminada: false,
+                        comentario: ''
+                    });
+                }
+            });
+
+            if (validationErrors.length > 0) {
+                const errorSummary = validationErrors.slice(0, 5)
+                    .map(e => `Fila ${e.index + 1}: ${e.errors.map(err => err.message).join(', ')}`)
+                    .join('\n');
+                alert(`Se encontraron ${validationErrors.length} errores de validación:\n\n${errorSummary}${validationErrors.length > 5 ? '\n...' : ''}`);
+                setProcessing(false);
+                return;
+            }
+
+            if (validPieces.length === 0) {
+                alert("No se encontraron piezas válidas para importar");
+                setProcessing(false);
+                return;
+            }
+
             const batchSize = 450;
-            
-            for (let i = 0; i < totalItems; i += batchSize) {
+
+            for (let i = 0; i < validPieces.length; i += batchSize) {
                 const batch = writeBatch(db);
-                const chunk = data.slice(i, i + batchSize);
-                
+                const chunk = validPieces.slice(i, i + batchSize);
+
                 chunk.forEach(item => {
                     const ref = doc(collection(db, `artifacts/${appId}/public/data/projects/${activeProjectId}/pieces`));
                     batch.set(ref, {
                         ...item,
-                        eliminada: false,
-                        comentario: '',
                         loadedAt: serverTimestamp(),
                         loadedBy: userProfile ? `${userProfile.nombre} ${userProfile.apellido}` : 'Sistema'
                     });
                 });
 
-                if (i + batchSize >= totalItems) {
+                if (i + batchSize >= validPieces.length) {
                     const logRef = doc(collection(db, `artifacts/${appId}/public/data/projects/${activeProjectId}/sync_logs`));
                     batch.set(logRef, {
                         date: serverTimestamp(),
                         user: userProfile ? `${userProfile.nombre} ${userProfile.apellido}` : 'Sistema',
                         file: file.name,
-                        added: totalItems,
+                        added: validPieces.length,
                         removed: 0,
-                        addedDetails: `Importación masiva de ${totalItems} piezas finalizada correctamente.`,
+                        addedDetails: `Importación masiva de ${validPieces.length} piezas finalizada correctamente.`,
                         removedDetails: ''
                     });
                 }
                 await batch.commit();
             }
-            alert(`Sincronización completa: ${totalItems} piezas importadas.`);
+            alert(`✅ Sincronización completa: ${validPieces.length} piezas importadas correctamente.`);
         } catch (err: any) {
-            alert("Fallo de importación: " + err.message);
+            console.error('Import error:', err);
+            alert("❌ Error en importación: " + (err.message || "Intenta de nuevo"));
         } finally {
             setProcessing(false);
             if (fileRef.current) fileRef.current.value = '';
@@ -472,21 +605,45 @@ export default function App() {
     const handleUpdateProfile = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!userProfile?.id) return;
+
+        // Validate inputs
+        const nombre = (profileEditData.nombre || '').trim();
+        const apellido = (profileEditData.apellido || '').trim();
+        const area = profileEditData.area || '';
+
+        const nombreValidation = ValidationService.validateName(nombre);
+        if (!nombreValidation.valid) {
+            alert(nombreValidation.error || "Nombre inválido");
+            return;
+        }
+
+        const apellidoValidation = ValidationService.validateName(apellido);
+        if (!apellidoValidation.valid) {
+            alert(apellidoValidation.error || "Apellido inválido");
+            return;
+        }
+
+        if (!area || !AREAS.includes(area)) {
+            alert("Área inválida");
+            return;
+        }
+
         setProcessing(true);
         try {
             const userRef = doc(db, `artifacts/${appId}/public/data/users`, userProfile.id);
             const updatedData = {
-                nombre: profileEditData.nombre || '',
-                apellido: profileEditData.apellido || '',
-                area: profileEditData.area || '',
+                nombre: ValidationService.sanitizeInput(nombre.toUpperCase()),
+                apellido: ValidationService.sanitizeInput(apellido.toUpperCase()),
+                area: ValidationService.sanitizeInput(area),
                 avatarUrl: profileEditData.avatarUrl || ''
             };
             await updateDoc(userRef, updatedData);
             setUserProfile(prev => prev ? ({ ...prev, ...updatedData }) : null);
             setModals(m => ({ ...m, profile: false }));
-            alert("Perfil actualizado correctamente");
+            alert("✅ Perfil actualizado correctamente");
         } catch (err: any) {
-            alert("Error al actualizar perfil: " + err.message);
+            console.error('Profile update error:', err);
+            alert("❌ Error al actualizar perfil: " + err.message);
         } finally {
             setProcessing(false);
         }

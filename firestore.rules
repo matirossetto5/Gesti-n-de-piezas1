@@ -1,0 +1,60 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper function to check if user is authenticated
+    function isAuth() {
+      return request.auth != null;
+    }
+
+    // Helper function to check if user has specific area
+    function hasArea(area) {
+      return get(/databases/$(database)/documents/artifacts/$(request.auth.uid)/public/data/users/$(request.auth.uid)).data.area == area;
+    }
+
+    // Main artifacts collection
+    match /artifacts/{artifactId}/public/data/{document=**} {
+      // Users can only access their own artifact
+      allow read, write: if isAuth() && (artifactId == request.auth.uid || artifactId == 'shared');
+    }
+
+    // Users subcollection
+    match /artifacts/{artifactId}/public/data/users/{userId} {
+      allow read: if isAuth() && (request.auth.uid == userId || artifactId == 'shared');
+      allow create: if isAuth() && request.auth.uid == userId;
+      allow update, delete: if isAuth() && request.auth.uid == userId && request.resource.data.area in ['Dirección', 'Técnico-Comercial', 'Recursos Humanos', 'Finanzas', 'Compras', 'Almacén', 'Producción', 'Oficina Técnica', 'Obra', 'Soporte IT', 'Logistica'];
+    }
+
+    // Projects subcollection
+    match /artifacts/{artifactId}/public/data/projects/{projectId} {
+      allow read: if isAuth();
+      allow create, update: if isAuth() && request.resource.data.name is string && request.resource.data.name.size() > 0;
+      allow delete: if isAuth() && request.auth.token.email != null;
+    }
+
+    // Pieces subcollection (read all, write based on permissions)
+    match /artifacts/{artifactId}/public/data/projects/{projectId}/pieces/{pieceId} {
+      allow read: if isAuth();
+      allow create, update: if isAuth() &&
+        request.resource.data.conjunto is string &&
+        request.resource.data.peso is number &&
+        request.resource.data.peso >= 0 &&
+        request.resource.data.peso <= 10000;
+      allow delete: if isAuth();
+    }
+
+    // Sync logs (immutable, append-only)
+    match /artifacts/{artifactId}/public/data/projects/{projectId}/sync_logs/{logId} {
+      allow read: if isAuth();
+      allow create: if isAuth() &&
+        request.resource.data.user is string &&
+        request.resource.data.file is string;
+      allow update, delete: if false; // Immutable
+    }
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
