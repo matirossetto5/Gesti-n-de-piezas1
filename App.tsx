@@ -163,7 +163,16 @@ export default function App() {
             setAuthLoading(false);
             return;
         }
-        return onAuthStateChanged(auth, async (u) => {
+        // Safety timeout: if onAuthStateChanged never fires (network issues, bad config),
+        // stop the loading spinner after 10 seconds and show the login form.
+        const timeout = setTimeout(() => {
+            console.warn('Auth timeout: onAuthStateChanged did not fire within 10 seconds');
+            setAuthLoading(false);
+            setModals(m => ({ ...m, login: true }));
+        }, 10000);
+
+        const unsubscribe = onAuthStateChanged(auth, async (u) => {
+            clearTimeout(timeout);
             setUser(u);
             if (u) {
                 const q = query(collection(db, `artifacts/${appId}/public/data/users`), where("authUid", "==", u.uid), limit(1));
@@ -173,7 +182,6 @@ export default function App() {
                     setUserProfile(data);
                     setProfileEditData(data);
                 } else {
-                    // Si el usuario existe en Auth pero no en Firestore, lo manejamos (ej. registro recién hecho)
                     console.log("Perfil de usuario no encontrado en Firestore, esperando creación.");
                 }
                 setModals(m => ({ ...m, login: false }));
@@ -182,6 +190,11 @@ export default function App() {
             }
             setAuthLoading(false);
         });
+
+        return () => {
+            clearTimeout(timeout);
+            unsubscribe();
+        };
     }, []);
 
     useEffect(() => {
