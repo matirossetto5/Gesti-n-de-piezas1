@@ -203,9 +203,11 @@ export default function App() {
 
     useEffect(() => {
         if (!user) return;
-        return onSnapshot(query(collection(db, `artifacts/${appId}/public/data/projects`), orderBy('name')), (snap) => {
-            setProjects(snap.docs.map(d => ({ id: d.id, ...d.data() } as Project)));
-        });
+        return onSnapshot(
+            query(collection(db, `artifacts/${appId}/public/data/projects`), orderBy('name')),
+            (snap) => { setProjects(snap.docs.map(d => ({ id: d.id, ...d.data() } as Project))); },
+            (err) => { console.error('Error cargando proyectos:', err); }
+        );
     }, [user]);
 
     useEffect(() => {
@@ -213,13 +215,16 @@ export default function App() {
             setPieces([]); setSyncLogs([]); return;
         }
         setLoadingData(true);
-        const unsubPieces = onSnapshot(collection(db, `artifacts/${appId}/public/data/projects/${activeProjectId}/pieces`), (snap) => {
-            setPieces(snap.docs.map(d => ({ id: d.id, ...d.data() } as Piece)));
-            setLoadingData(false);
-        });
-        const unsubLogs = onSnapshot(query(collection(db, `artifacts/${appId}/public/data/projects/${activeProjectId}/sync_logs`), orderBy('date', 'desc'), limit(50)), (snap) => {
-            setSyncLogs(snap.docs.map(d => ({ id: d.id, ...d.data() } as SyncLog)));
-        });
+        const unsubPieces = onSnapshot(
+            collection(db, `artifacts/${appId}/public/data/projects/${activeProjectId}/pieces`),
+            (snap) => { setPieces(snap.docs.map(d => ({ id: d.id, ...d.data() } as Piece))); setLoadingData(false); },
+            (err) => { console.error('Error cargando piezas:', err); setLoadingData(false); }
+        );
+        const unsubLogs = onSnapshot(
+            query(collection(db, `artifacts/${appId}/public/data/projects/${activeProjectId}/sync_logs`), orderBy('date', 'desc'), limit(50)),
+            (snap) => { setSyncLogs(snap.docs.map(d => ({ id: d.id, ...d.data() } as SyncLog))); },
+            (err) => { console.error('Error cargando logs:', err); }
+        );
         return () => { unsubPieces(); unsubLogs(); };
     }, [activeProjectId, user]);
 
@@ -626,46 +631,64 @@ export default function App() {
 
     const handleUpdateProfile = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!userProfile?.id) return;
 
-        // Validate inputs
         const nombre = (profileEditData.nombre || '').trim();
         const apellido = (profileEditData.apellido || '').trim();
         const area = profileEditData.area || '';
 
         const nombreValidation = ValidationService.validateName(nombre);
-        if (!nombreValidation.valid) {
-            alert(nombreValidation.error || "Nombre inválido");
-            return;
-        }
+        if (!nombreValidation.valid) { alert(nombreValidation.error || "Nombre inválido"); return; }
 
         const apellidoValidation = ValidationService.validateName(apellido);
-        if (!apellidoValidation.valid) {
-            alert(apellidoValidation.error || "Apellido inválido");
-            return;
-        }
+        if (!apellidoValidation.valid) { alert(apellidoValidation.error || "Apellido inválido"); return; }
 
-        if (!area || !AREAS.includes(area)) {
-            alert("Área inválida");
-            return;
-        }
+        if (!area || !AREAS.includes(area)) { alert("Área inválida"); return; }
 
         setProcessing(true);
         try {
-            const userRef = doc(db, `artifacts/${appId}/public/data/users`, userProfile.id);
             const updatedData = {
                 nombre: ValidationService.sanitizeInput(nombre.toUpperCase()),
                 apellido: ValidationService.sanitizeInput(apellido.toUpperCase()),
                 area: ValidationService.sanitizeInput(area),
                 avatarUrl: profileEditData.avatarUrl || ''
             };
-            await updateDoc(userRef, updatedData);
+
+            let profileId = userProfile?.id;
+
+            // If profile wasn't loaded yet, try to find it in Firestore
+            if (!profileId && user) {
+                const q = query(collection(db, `artifacts/${appId}/public/data/users`), where("authUid", "==", user.uid), limit(1));
+                const snap = await getDocs(q);
+                if (!snap.empty) {
+                    profileId = snap.docs[0].id;
+                    const data = { id: snap.docs[0].id, ...snap.docs[0].data() } as UserProfile;
+                    setUserProfile(data);
+                    setProfileEditData(data);
+                } else {
+                    // Profile doesn't exist yet — create it
+                    const newRef = await addDoc(collection(db, `artifacts/${appId}/public/data/users`), {
+                        authUid: user.uid,
+                        email: user.email || '',
+                        ...updatedData,
+                        createdAt: serverTimestamp()
+                    });
+                    profileId = newRef.id;
+                    setUserProfile({ id: profileId, authUid: user.uid, email: user.email || '', ...updatedData } as UserProfile);
+                    setModals(m => ({ ...m, profile: false }));
+                    alert("✅ Perfil creado correctamente");
+                    return;
+                }
+            }
+
+            if (!profileId) { alert("❌ No se pudo identificar el perfil. Recargá la página."); return; }
+
+            await updateDoc(doc(db, `artifacts/${appId}/public/data/users`, profileId), updatedData);
             setUserProfile(prev => prev ? ({ ...prev, ...updatedData }) : null);
             setModals(m => ({ ...m, profile: false }));
             alert("✅ Perfil actualizado correctamente");
         } catch (err: any) {
             console.error('Profile update error:', err);
-            alert("❌ Error al actualizar perfil: " + err.message);
+            alert("❌ Error al guardar perfil: " + err.message);
         } finally {
             setProcessing(false);
         }
@@ -971,8 +994,11 @@ export default function App() {
             </div>
             <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6">
                 <div className="bg-white/5 rounded-2xl p-6 border border-white/5">
-                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-4">Proyecto Activo</label>
-                    <select 
+                    <div className="flex items-center justify-between mb-4">
+                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Proyecto Activo</label>
+                        <button onClick={() => { setModals(m => ({...m, projects: true})); setMobileMenuOpen(false); }} className="text-[8px] font-black text-teal-400 uppercase tracking-widest hover:text-teal-300 transition-colors">Administrar</button>
+                    </div>
+                    <select
                         className="w-full bg-transparent text-xs font-black text-white uppercase tracking-tight outline-none cursor-pointer"
                         value={activeProjectId || ''}
                         onChange={(e) => { setActiveProjectId(e.target.value); setMobileMenuOpen(false); }}
@@ -1301,15 +1327,13 @@ export default function App() {
 
             <Modal isOpen={modals.projects} onClose={() => setModals(m => ({...m, projects: false}))} title="Obras Solana" size="lg">
                 <div className="space-y-8">
-                    {isOT && (
-                        <form onSubmit={(e) => {
-                            e.preventDefault();
-                            const name = (e.target as any).pname.value;
-                            if (!name) return;
-                            setProcessing(true);
-                            addDoc(collection(db, `artifacts/${appId}/public/data/projects`), { name: name.toUpperCase(), createdAt: serverTimestamp(), archived: false }).then(() => { (e.target as any).reset(); setProcessing(false); }).catch(() => setProcessing(false));
-                        }} className="flex flex-col md:flex-row gap-3"><input name="pname" placeholder="NOMBRE DE LA OBRA..." className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-5 py-3 text-xs font-bold uppercase outline-none" required /><Button type="submit" loading={processing} className="w-full md:w-auto px-10">Crear Obra</Button></form>
-                    )}
+                    <form onSubmit={(e) => {
+                        e.preventDefault();
+                        const name = (e.target as any).pname.value;
+                        if (!name) return;
+                        setProcessing(true);
+                        addDoc(collection(db, `artifacts/${appId}/public/data/projects`), { name: name.toUpperCase(), createdAt: serverTimestamp(), archived: false }).then(() => { (e.target as any).reset(); setProcessing(false); }).catch((err) => { alert("❌ Error al crear obra: " + err.message); setProcessing(false); });
+                    }} className="flex flex-col md:flex-row gap-3"><input name="pname" placeholder="NOMBRE DE LA OBRA..." className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-5 py-3 text-xs font-bold uppercase outline-none" required /><Button type="submit" loading={processing} className="w-full md:w-auto px-10">Crear Obra</Button></form>
                     <div className="space-y-3 max-h-[50vh] overflow-y-auto custom-scroll pr-2">
                         {projects.map(p => (<div key={p.id} className={`flex items-center justify-between p-4 md:p-6 rounded-2xl border transition-all ${p.archived ? 'bg-slate-50 opacity-40 border-slate-100' : 'bg-white border-slate-200 hover:shadow-lg'}`}><div className="flex items-center gap-4 truncate"><Building className="w-5 h-5 text-slate-300 flex-none" /><div className="truncate"><h4 className="font-black text-slate-900 tracking-tight text-sm uppercase truncate">{p.name}</h4><p className="text-[8px] font-bold text-slate-400 uppercase mt-1">ID: {p.id.slice(0,8)}</p></div></div><div className="flex gap-2">{!p.archived && <button onClick={() => { setActiveProjectId(p.id); setModals(m => ({...m, projects: false})); }} className="px-4 py-2 bg-teal-50 text-teal-700 rounded-lg text-[9px] font-black uppercase border border-teal-100 active:scale-95 transition-all">Abrir</button>}{isOT && (<button onClick={() => confirm("Eliminar?") && deleteDoc(doc(db, `artifacts/${appId}/public/data/projects`, p.id))} className="p-2 text-slate-200 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>)}</div></div>))}
                     </div>
