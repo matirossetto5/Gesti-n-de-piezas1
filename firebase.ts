@@ -4,13 +4,12 @@ import { getFirestore } from "firebase/firestore";
 
 // Configuration from environment variables (secure)
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyDtFio7d5DSgeaVQdyOMTO98xpKtQuF52s",
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "gestion-de-piezas-fefdc.firebaseapp.com",
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "gestion-de-piezas-fefdc",
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "gestion-de-piezas-fefdc.appspot.com",
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "108463748099",
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:108463748099:web:a5c0f1fdd5507fc45c8a36",
-  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || "G-D02SFWZYYM"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyDr4CgSmWarlLqcjTMV9NLAfX7RgRuE9Hc",
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "gestion-de-piezas-9baf6.firebaseapp.com",
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "gestion-de-piezas-9baf6",
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "gestion-de-piezas-9baf6.firebasestorage.app",
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "522730585054",
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:522730585054:web:1f3d4601e08ecaf395fb4f"
 };
 
 // Use global config if injected (fallback to local)
